@@ -1,0 +1,28 @@
+{
+  "name": "zap-api",
+  "version": "1.0.0",
+  "description": "Server side api of the multi media player zap",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "server": "node ./index.js"
+  },
+  "dependencies": {
+    "dns": "^0.2.2",
+    "exif": "^0.6.0",
+    "exif-js": "^2.3.0",
+    "express": "^4.17.1",
+    "module": "^1.2.5",
+    "moment": "^2.24.0",
+    "mongodb": "^3.3.5",
+    "primus": "^7.3.4",
+    "q": "^1.4.1",
+    "socket.io": "^2.3.0",
+    "socket.io-client": "^2.3.0"
+  },
+  "devDependencies": {
+    "mime": "^1.6.0"
+  },
+  "author": "Marc-André Audet",
+  "license": "ISC"
+}
