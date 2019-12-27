@@ -17,6 +17,7 @@
     "mongodb": "^3.3.5",
     "primus": "^7.3.4",
     "q": "^1.4.1",
+    "s3-bucket": "^1.0.3",
     "socket.io": "^2.3.0",
     "socket.io-client": "^2.3.0"
   },
