@@ -10,7 +10,7 @@ const express = require('express');
 const app = express();
 app.use(express.static('../'));
 
-var io = require('socket.io')(8080);
+var io = require('socket.io')(3000);
 
 console.log('instantiation of socket io');
 

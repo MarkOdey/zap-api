@@ -40,20 +40,20 @@ var MongoConnexion = function() {
 		
 		MongoConnexion.instantiated = true;
 
-		MongoClient.connect('mongodb://localhost:27017/zap', {useUnifiedTopology: true}).then(function(err, mongocli) {
+		var url = process.env.MONGO_URL || 'mongodb://localhost:27017/zap';
 
+		MongoClient.connect(url, {useUnifiedTopology: true}).then(function(mongocli) {
 
-			if(err) {
-
-				console.log('Mongo Error');
-				console.log(err);
-			}
-			
 			self.client = mongocli;
 
 			console.log('Mongo Client connected.');
 
 			initDefer.resolve(self.client);
+
+		}).catch(function(err) {
+
+			console.log('Mongo Error');
+			console.log(err);
 
 		});
 
