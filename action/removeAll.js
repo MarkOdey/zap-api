@@ -1,54 +1,10 @@
-const fs = require('fs');
+const MongoConnexion = require('../utils/MongoConnexion');
 
-var q = require('q');
-
-var mime = require("mime");
-
-
-var MongoConnexion = require('../utils/MongoConnexion');
-
-var assert = require('assert');
-var EventEmitter = require('events').EventEmitter;
-
-const spawn = require('child_process').spawn;
-
-
-var db;
-
-/**
- * Action for removing all files.
- */
-function RemoveAll() {
-
-    EventEmitter.apply(this, arguments);
-
-    var self = this;
-
-    this.data = {};
-
-    console.log('Removing all assets');
-
-    MongoConnexion.get().then(function (client) {
-
-        console.log('mongo client retrived at Record.');
-        
-        var db = client.db("zap");
-
-        var data = db.collection('data');
-
-        data.remove({});
-        
-        console.log('Assets removed');
-
-        this.emit('resolve');
-
-
-    }); 
-
-    
-
+async function removeAll() {
+  const mongoclient = await MongoConnexion.get();
+  const col = mongoclient.db('zap').collection('data');
+  const result = await col.deleteMany({});
+  console.log('removed', result.deletedCount, 'assets');
 }
 
-RemoveAll.prototype.__proto__ = EventEmitter.prototype;
-
-module.exports = RemoveAll;
+module.exports = removeAll;

@@ -1,86 +1,19 @@
-const spawn = require('child_process').spawn;
-var EventEmitter = require('events').EventEmitter;
+const fs = require('fs').promises;
+const record = require('./record.js');
 
-var fs = require('fs');
+async function upload(data) {
+  if (typeof data === 'string') data = JSON.parse(data);
 
-var Media = require('../media.js');
+  const { meta, data: payload } = data;
+  if (!meta?.name) throw new Error('upload: missing meta.name');
 
-var Session = require('../session.js');
+  const base64 = payload.split(';base64,').pop();
+  const source = 'data/' + meta.name;
 
-Session.status.on('connection', function(session) {
+  await fs.writeFile(source, base64, { encoding: 'base64' });
+  console.log('upload: file written to', source);
 
-	session.socket.on('upload', function (data) {
-
-		console.log('uploading');
-		var upload = new Upload(data);
-
-	});
-
-});
-
-var q = require('q');
-
-var moment = require('moment');
-
-function Upload(data) {
-
-
-	if(typeof data == 'string') {
-
-		var payload = JSON.parse(data);
-
-		console.log(payload.meta);
-
-		Object.assign(this, payload);
-
-	}
-
-	var self = this;
-
-	console.log(this.file);
-
-	var ABSOLUTE_PATH = "../";
-
-
-	this.init = function () {
-
-		var defer = q.defer();
-	
-		let base64Image = self.data.split(';base64,').pop();
-
-		var source = 'data/'+self.meta.name;
-
-		self.source = source;
-
-		fs.writeFile(source, base64Image, {encoding: 'base64'}, function(err) {
-
-			if(err) {
-
-				console.log(err);
-
-			}
-
-			self.meta.source = 'data/'+self.meta.name;
-
-			var Mediaitem = Media.get(self.meta);
-
-
-			var media = new Mediaitem(self.meta);
-		    console.log('File created');
-
-		    defer.resolve();
-
-		});
-
-		
-		return defer.promise;
-
-	}
-
-	this.init();
-
+  await record({ key: source, source, ...meta });
 }
 
-Upload.prototype.__proto__ = EventEmitter.prototype;
-
-module.exports = Upload;
+module.exports = upload;

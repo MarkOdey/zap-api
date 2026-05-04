@@ -1,66 +1,12 @@
+const MongoConnexion = require('../utils/MongoConnexion');
 
-var MongoConnexion = require('../utils/MongoConnexion');
-
-var assert = require('assert');
-var EventEmitter = require('events').EventEmitter;
-
-
-function Record(data) {
-
-    var self = this;
-
-    console.log('Record data.');
-    //console.log(data);
-
-    MongoConnexion.get().then(function (client) {
-
-        console.log('mongo client retrived at Record.');
-        
-        var db = client.db("zap");
-        var col = db.collection('data');
-
-        if(data.key == undefined) {
-
-            throw "No key specified."
-        }
-
-        data.weight = Math.random();
-
-        col.update({"key" : data.key },        
-            data
-            , 
-           { 
-                upsert : true 
-            }, function (err, data) {
-
-                if(err) {
-
-                    console.log('Did not update properly.');
-                    
-                    self.emit('reject');
-                    return;
-
-                }
-
-
-                //console.log(data);
-
-                console.log('Record updated.');
-
-                self.emit('resolve', data);
-
-
-
-            });
-
-
-	});
-
-
-
+async function record(data) {
+  if (!data.key) throw new Error('record: no key specified');
+  const mongoclient = await MongoConnexion.get();
+  const col = mongoclient.db('zap').collection('data');
+  data.weight = data.weight ?? Math.random();
+  await col.updateOne({ key: data.key }, { $set: data }, { upsert: true });
+  console.log('record updated:', data.key);
 }
 
-
-Record.prototype.__proto__ = EventEmitter.prototype;
-
-module.exports = Record;
+module.exports = record;

@@ -1,71 +1,36 @@
-var Play = require('./action/play.js');
-var Find = require('./action/find.js');
-var Crop = require('./action/crop.js');
-var Concat = require('./action/concat.js');
-var RemoveAll = require('./action/removeAll.js');
-var Explore = require('./action/explore.js');
+const play      = require('./action/play.js');
+const find      = require('./action/find.js');
+const crop      = require('./action/crop.js');
+const concat    = require('./action/concat.js');
+const removeAll = require('./action/removeAll.js');
+const explore   = require('./action/explore.js');
+const upload    = require('./action/upload.js');
 
-var Session = require('./session.js');
+const Session   = require('./session.js');
+const Cognition = require('./cognition.js');
 
-var Cognition = require('./cognition.js');
+// Actions available via CLI invocation
+const actions = { play, find, crop, concat, removeAll, explore, upload };
 
+// Register actions that connected sessions will run
+Session.addAction(play);
 
-var Upload = require('./action/upload.js');
-
-//Index available actions
-var actions = {
-
-	"play" : Play,
-	"find" : Find,
-	"crop" : Crop,
-	"concat" : Concat,
-	"removeAll" : RemoveAll,
-	"explore" : Explore
-
+// CLI: node index.js <action> [params]
+const cliAction = process.argv[2];
+if (cliAction) {
+  const actionFn = actions[cliAction];
+  if (actionFn) {
+    const params = process.argv[3];
+    actionFn(params).then(() => process.exit(0)).catch(err => {
+      console.error(err);
+      process.exit(1);
+    });
+  } else {
+    console.error('Unknown action:', cliAction);
+    console.error('Available:', Object.keys(actions).join(', '));
+    process.exit(1);
+  }
 }
 
-
-
-
-//Add actions a Session can handle.
-Session.addAction(Play);
-
-
-
-
-//This is in case you want to run a specific command
-//We check if action specified.
-if(process.argv[2] != undefined) {
-
-	console.log(process.argv[2]);
-
-	//First param is action
-	var Action = actions[process.argv[2]];
-
-	console.log('Loading action');
-
-	//if action reference is declared and exists 
-	if(Action != undefined) {
-
-		//Pass in params.
-	    var params = process.argv[3];
-
-
-		var action = new Action(params);
-
-		action.run();
-
-	}
-
-
-} else {
-
-
-}
-
-
-
-
-var cognition = new Cognition();
-
+const cognition = new Cognition();
 cognition.run();

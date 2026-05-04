@@ -1,111 +1,63 @@
-const fs = require('fs');
+const fs = require('fs').promises;
+const path = require('path');
+const { spawn } = require('child_process');
+const MongoConnexion = require('../utils/MongoConnexion');
 
-
-var MongoConnexion = require('../utils/MongoConnexion');
-
-var q = require('q');
-
-var mime = require("mime");
-
-
-var assert = require('assert');
-var EventEmitter = require('events').EventEmitter;
-
-const spawn = require('child_process').spawn;
-
-function getMetaData(url) {
-
-    EventEmitter.apply(this, arguments);
-
-    var defer = q.defer();
-
-    var self = this;
-
-    //console.log(url);
-     
-    const ls = spawn('exiftool', [ '-json', url]);
-    ls.stdout.on('data', (data) => {
-      
-        console.log(String(data));
-
-        var metadata = JSON.parse(String(data));
-
-        self.emit('resolve', metadata[0]);
-
-        defer.resolve(metadata[0]);
-
-
+function getMetaData(filePath) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('exiftool', ['-json', filePath]);
+    let output = '';
+    proc.stdout.on('data', d => { output += d; });
+    proc.on('error', reject);
+    proc.on('close', () => {
+      try {
+        resolve(JSON.parse(output)[0]);
+      } catch (e) {
+        reject(new Error(`exiftool parse failed for ${filePath}: ${e.message}`));
+      }
     });
-
+  });
 }
 
-getMetaData.prototype.__proto__ = EventEmitter.prototype;
+async function explore() {
+  const mongoclient = await MongoConnexion.get();
+  const col = mongoclient.db('zap').collection('data');
+  const dataDir = process.env.DATA_DIR || './data';
 
-var db;
+  let files;
+  try {
+    files = await fs.readdir(dataDir);
+  } catch (e) {
+    console.error('explore: cannot read data dir', dataDir, e.message);
+    return;
+  }
 
-function Explore() {
+  for (const filename of files) {
+    const filePath = path.join(dataDir, filename);
+    try {
+      const meta = await getMetaData(filePath);
+      if (!meta) continue;
 
-    EventEmitter.apply(this, arguments);
+      const doc = {
+        key:    filePath,
+        name:   meta.FileName  || filename,
+        source: filePath,
+        type:   meta.MIMEType  || '',
+        weight: Math.random(),
+      };
 
-    var self = this;
+      await col.updateOne(
+        { key: doc.key },
+        { $set: doc },
+        { upsert: true }
+      );
+      console.log('indexed:', filename);
+    } catch (e) {
+      console.warn('explore: skipping', filename, '-', e.message);
+    }
+  }
 
-    this.data = {};
-
-    MongoConnexion.get().then(function (mongoclient) {
-
-        var db = mongoclient.db("zap");
-        var col = db.collection('data');
-
-        fs.readdir('../data/', function (err, data){
-
-            if(err != undefined) {
-
-                console.log('unable to find data.');
-                console.log(err);
-            }
-
-            for(var i in data) {
-
-
-                var meta = new getMetaData('../data/'+data[i]);
-
-                meta.on('resolve', function (metadata){
-
-                    if(metadata == undefined) {
-
-                        console.log('metadata undefined');
-                        return;
-                    }
-
-                    metadata.weight = Math.random();
-
-                    metadata["SourceUrl"] = metadata["SourceFile"].replace("..", "");
-
-                    console.log(metadata);
-
-                    var r = col.update({ SourceFile : metadata["SourceFile"] },
-                                   { 
-                                        $set : metadata
-                                     }, 
-                                   { 
-                                        upsert : true 
-                                    });
-                        });
-
-              
-                self.data[i] = data[i];
-
-            }
-
-            self.emit('resolve', self.data);
-
-        });
-
-    });
-
+  console.log('explore: done indexing', files.length, 'files');
 }
 
-
-Explore.prototype.__proto__ = EventEmitter.prototype;
-
-module.exports = Explore;
+module.exports = explore;
