@@ -13,6 +13,7 @@
     "exif": "^0.6.0",
     "exif-js": "^2.3.0",
     "express": "^4.17.1",
+    "mime": "^2.6.0",
     "module": "^1.2.5",
     "moment": "^2.24.0",
     "mongodb": "^3.3.5",
@@ -21,9 +22,7 @@
     "s3-bucket": "^1.0.3",
     "socket.io": "^4.6.0"
   },
-  "devDependencies": {
-    "mime": "^1.6.0"
-  },
+  "devDependencies": {},
   "author": "Marc-André Audet",
   "license": "ISC"
 }

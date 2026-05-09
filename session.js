@@ -7,11 +7,14 @@ const io = require("socket.io")(process.env.PORT || 3000, {
     origin: process.env.CORS_ORIGIN || "http://localhost:5173",
     methods: ["GET", "POST"],
   },
+  maxHttpBufferSize: 500 * 1024 * 1024, // 500 MB — needed for base64 video uploads
 });
 
 console.log("socket.io listening on port", process.env.PORT || 3000);
 
 // Named command dispatcher — replaces eval()
+const appreciate = require("./action/appreciate.js");
+
 const COMMANDS = {
   explore: require("./action/explore.js"),
   find: require("./action/find.js"),
@@ -20,6 +23,9 @@ const COMMANDS = {
   crop: require("./action/crop.js"),
   concat: require("./action/concat.js"),
   upload: require("./action/upload.js"),
+  connect: require("./action/connect.js"),
+  disconnect: require("./action/disconnect.js"),
+  traverse: require("./action/traverse.js"),
 };
 
 io.on("connection", function (socket) {
@@ -65,7 +71,7 @@ function Session(socket) {
     }
 
     if (!destroyed && !paused) {
-      setTimeout(() => self.update(), 2000);
+      setTimeout(() => self.update(), 100);
     }
   };
 
@@ -115,11 +121,38 @@ function Session(socket) {
     }
   });
 
-  socket.on("upload", async function (data) {
+  socket.on("like", async () => {
     try {
-      await COMMANDS.upload(data);
+      await appreciate({
+        key: session.currentKey,
+        edgeKey: session.precedingEdge?.key,
+        delta: +0.1,
+      });
+    } catch (err) {
+      console.error("like error:", err.message);
+    }
+  });
+
+  socket.on("dislike", async () => {
+    try {
+      await appreciate({
+        key: session.currentKey,
+        edgeKey: session.precedingEdge?.key,
+        delta: -0.1,
+      });
+    } catch (err) {
+      console.error("dislike error:", err.message);
+    }
+  });
+
+  socket.on("upload", async function (data) {
+    console.log("upload event received!");
+    try {
+      const result = await COMMANDS.upload(data);
+      socket.emit("upload:done", { ok: true, segments: result.segments });
     } catch (err) {
       console.error("upload error:", err.message);
+      socket.emit("upload:done", { ok: false, error: err.message });
     }
   });
 

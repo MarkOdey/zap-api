@@ -7,11 +7,30 @@ async function play(session) {
 
   const mongoclient = await MongoConnexion.get();
   const col = mongoclient.db("zap").collection("data");
+  const edgeCol = mongoclient.db("zap").collection("edges");
 
-  // Weighted selection: higher-weight items pass the random threshold more often.
-  // Fallback to any document when the threshold is above all weights.
-  let data = await col.findOne({ weight: { $gt: Math.random() } });
-  if (!data) data = await col.findOne({});
+  let data = null;
+  let precedingEdge = null;
+
+  // Try edge traversal from the previous item
+  if (session.currentKey) {
+    const edges = await edgeCol.find({ from: session.currentKey }).toArray();
+    if (edges.length > 0) {
+      const edge = edges[Math.floor(Math.random() * edges.length)];
+      const candidate = await col.findOne({ key: edge.to });
+      if (candidate) {
+        data = candidate;
+        precedingEdge = edge;
+        console.log("play: traversing edge", edge.key);
+      }
+    }
+  }
+
+  // Fallback: weighted random selection
+  if (!data) {
+    data = await col.findOne({ weight: { $gt: Math.random() } });
+    if (!data) data = await col.findOne({});
+  }
 
   if (!data) {
     console.log("play: collection is empty — run 'node index.js explore' first");
@@ -28,23 +47,18 @@ async function play(session) {
     return;
   }
 
+  // Track session state for like/dislike handlers
+  session.currentKey = data.key;
+  session.precedingEdge = precedingEdge;
+
   console.log("play: emitting", data.source);
   session.socket.emit("play", { ...data, src });
 
-  // Wait for the client to signal completion
-  const verdict = await new Promise((resolve) => {
+  // Wait for playback completion signal (resolve/reject)
+  await new Promise((resolve) => {
     session.socket.once("resolve", () => resolve("resolve"));
-    session.socket.once("reject", () => resolve("reject"));
+    session.socket.once("reject",  () => resolve("reject"));
   });
-
-  const current = data.weight ?? 0.5;
-  data.weight =
-    verdict === "resolve"
-      ? Math.min(1, current + 0.1)
-      : Math.max(0, current - 0.1);
-
-  await update(data);
-  console.log("play: weight updated to", data.weight, "(", verdict, ")");
 }
 
 module.exports = play;

@@ -33,4 +33,7 @@ if (cliAction) {
 }
 
 const cognition = new Cognition();
-cognition.run();
+cognition.register('explore', require('./cognition/explore'),  60 * 1000);
+cognition.register('relate',  require('./cognition/relate'),   30 * 1000);
+cognition.register('prune',   require('./cognition/prune'),   120 * 1000);
+cognition.start();
