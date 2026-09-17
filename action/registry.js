@@ -8,6 +8,7 @@ import find from './find.js';
 import isolate from './isolate.js';
 import list from './list.js';
 import normalize from './normalize.js';
+import render from './render.js';
 import play from './play.js';
 import record from './record.js';
 import removeAll from './removeAll.js';
@@ -35,6 +36,7 @@ export const ACTIONS = {
   explore:    { fn: explore,    queueable: true,  params: [] },
   isolate:    { fn: isolate,    queueable: true,  params: ['key', 'label', 'all'] },
   compose:    { fn: compose,    queueable: true,  params: ['from', 'to', 'label', 'scale', 'x', 'y', 'opacity'] },
+  render:     { fn: render,     queueable: true,  params: ['visual', 'audio', 'maxDim', 'background'] },
   upload:     { fn: upload,     queueable: true,  params: ['meta', 'data'] },
   normalize:  { fn: normalize,  queueable: true,  params: ['source'] },
   crop:       { fn: crop,       queueable: true,  params: ['key', 'start', 'duration'] },

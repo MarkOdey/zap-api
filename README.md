@@ -105,6 +105,9 @@ npm install
 | `INFERENCE_MAX_DIM` | `1024` | Longest edge fed to the model; masks are scaled back up |
 | `SEGMENTATION_MODEL` | `Xenova/detr-resnet-50-panoptic` | Segmentation model |
 | `MAX_DERIVATION_DEPTH` | `3` | Refuse to compose onto an image this many generations deep |
+| `RENDER_MAX_DIM` | `1280` | Long edge of a rendered video |
+| `RENDER_STILL_FPS` | `12` | Frame rate when rendering a still; it never changes, so this only costs size |
+| `RENDER_PRESET` | `veryfast` | x264 preset; `veryfast` runs ~2.4x realtime at 1080p on this machine |
 | `OUTPUT_MAX_DIM` | `2048` | Long-edge cap for generated images |
 | `OUTPUT_FORMAT` | `webp` | Encoding for generated images; `png` for lossless |
 | `OUTPUT_QUALITY` | `90` | WebP quality (alpha is always kept at 100) |
@@ -168,6 +171,7 @@ node index.js removeAll   # drop all documents from the data collection
 | `removeAll` | Deletes all documents from the MongoDB data collection. |
 | `isolate` | Segments an indexed image and saves each cut-out shape as a transparent PNG. |
 | `compose` | Mixes a shape isolated from one image into another, saving the composite. |
+| `render` | Builds a new video from a visual and an audio track (still + audio, or clip with its audio replaced). |
 
 ---
 
@@ -310,3 +314,29 @@ stored `source` is used, then checked to be inside `DATA_DIR` — so neither a c
 nor a poisoned record can read arbitrary files.
 
 `maxHttpBufferSize` stays at 500MB because uploads still arrive as base64 over the socket.
+
+---
+
+## Rendering video from a visual and a track
+
+`render` builds a new video in the library:
+
+```bash
+# a still held for the length of a track
+node index.js render '{"visual":"data/photo.jpg","audio":"data/track.mp3"}'
+
+# a clip with its audio replaced
+node index.js render '{"visual":"data/clip.mp4","audio":"data/track.mp3"}'
+
+# omit `audio` and a soundtrack edge is used, so a pairing made with connect renders
+node index.js connect '{"from":"data/photo.jpg","to":"data/track.mp3","type":"soundtrack"}'
+node index.js render  '{"visual":"data/photo.jpg"}'
+```
+
+Transparent cutouts are flattened onto `background` (default black) — video has no
+alpha channel. Output is capped at `RENDER_MAX_DIM` and padded to even dimensions, which
+`yuv420p` requires.
+
+Duration comes from probing the inputs and cutting at the shorter of the two, not from
+`-shortest`: that overshot by up to 2.4s on a 6s track, leaving a frozen frame over
+silence.
