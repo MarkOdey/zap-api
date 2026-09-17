@@ -7,6 +7,7 @@ import record from './record.js';
 import connect from './connect.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 import { SOUNDTRACK } from '../relation/statement.js';
+import { probeDuration } from '../utils/ffprobe.js';
 
 /** Long edge of the rendered video. Keeps output sane from 16MP stills. */
 const MAX_DIM = Number(process.env.RENDER_MAX_DIM || 1280);
@@ -123,19 +124,6 @@ async function render({ visual, audio, maxDim = MAX_DIM, background = 'black' } 
 
   console.log(`render: wrote ${outPath} (${(size / 1048576).toFixed(1)}MB in ${seconds.toFixed(1)}s)`);
   return { key: outPath, seconds, bytes: size };
-}
-
-/** Duration in seconds, via ffprobe. */
-function probeDuration(file) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('ffprobe', [
-      '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file,
-    ]);
-    let out = '';
-    proc.stdout.on('data', d => { out += d; });
-    proc.on('error', reject);
-    proc.on('close', () => resolve(Number(out.trim())));
-  });
 }
 
 function runFfmpeg(args) {

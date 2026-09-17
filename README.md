@@ -108,6 +108,12 @@ npm install
 | `RENDER_MAX_DIM` | `1280` | Long edge of a rendered video |
 | `RENDER_STILL_FPS` | `12` | Frame rate when rendering a still; it never changes, so this only costs size |
 | `RENDER_PRESET` | `veryfast` | x264 preset; `veryfast` runs ~2.4x realtime at 1080p on this machine |
+| `EFFECT_MAX_DIM` | `1280` | Long edge of an effect's output |
+| `EFFECT_STILL_SECONDS` | `6` | Default length when animating a still |
+| `MONTAGE_WIDTH` / `MONTAGE_HEIGHT` | `1280` / `720` | Montage frame size |
+| `MONTAGE_FPS` | `25` | Montage frame rate |
+| `MONTAGE_STILL_SECONDS` | `3` | Seconds per still in a montage |
+| `MONTAGE_MAX_ITEMS` | `12` | Cap on items joined in one montage |
 | `OUTPUT_MAX_DIM` | `2048` | Long-edge cap for generated images |
 | `OUTPUT_FORMAT` | `webp` | Encoding for generated images; `png` for lossless |
 | `OUTPUT_QUALITY` | `90` | WebP quality (alpha is always kept at 100) |
@@ -172,6 +178,8 @@ node index.js removeAll   # drop all documents from the data collection
 | `isolate` | Segments an indexed image and saves each cut-out shape as a transparent PNG. |
 | `compose` | Mixes a shape isolated from one image into another, saving the composite. |
 | `render` | Builds a new video from a visual and an audio track (still + audio, or clip with its audio replaced). |
+| `effect` | Applies an ffmpeg effect to a clip, or animates a still: speed, reverse, fade, colour, greyscale, rotate, zoom, pan. |
+| `montage` | Joins several library items into one video, from explicit keys or by walking the edge graph. |
 
 ---
 
@@ -340,3 +348,35 @@ alpha channel. Output is capped at `RENDER_MAX_DIM` and padded to even dimension
 Duration comes from probing the inputs and cutting at the shorter of the two, not from
 `-shortest`: that overshot by up to 2.4s on a 6s track, leaving a frozen frame over
 silence.
+
+---
+
+## Effects and montage
+
+The three video actions compose, each doing one thing:
+
+```bash
+# animate a still — the movement a rendered still otherwise lacks
+node index.js effect '{"key":"data/photo.jpg","effect":"zoom","seconds":4}'
+node index.js effect '{"key":"data/photo.jpg","effect":"pan","direction":"left"}'
+
+# manipulate a clip
+node index.js effect '{"key":"data/clip.mp4","effect":"speed","factor":2}'
+node index.js effect '{"key":"data/clip.mp4","effect":"reverse"}'
+node index.js effect '{"key":"data/clip.mp4","effect":"colour","saturation":2.2,"contrast":1.3}'
+
+# join items, either explicitly or by following the edge graph
+node index.js montage '{"keys":["data/a.jpg","data/b.mp4","data/c.jpg"],"seconds":2}'
+node index.js montage '{"from":"data/a.jpg","count":5}'
+
+# montage is silent by design — score it with render
+node index.js render '{"visual":"data/montage-20260101120000.mp4","audio":"data/track.mp3"}'
+```
+
+`montage` uses the concat **filter**, not the demuxer. The demuxer requires every input to
+share codec, resolution and frame rate, which would mean normalizing each source first;
+the filter scales, pads and re-rates each input in one pass, so mismatched sources join
+directly. Stills are looped for `seconds` each.
+
+The edge-walk form gathers items breadth-first from `from`, following the same graph
+playback traverses, skipping `soundtrack` edges since audio has no frames.
