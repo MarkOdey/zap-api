@@ -1,19 +1,10 @@
-import { env, pipeline, RawImage } from '@huggingface/transformers';
+import { RawImage } from '@huggingface/transformers';
 import sharp from 'sharp';
 
-/**
- * Model weights are downloaded from the Hugging Face Hub on first use and cached
- * on disk. Keep the cache inside the project (not node_modules) so a Docker
- * volume can hold it — otherwise every container start re-downloads.
- */
-env.cacheDir = process.env.MODEL_CACHE_DIR || './.models';
+import { getPipeline } from './models.js';
 
-/**
- * Quantization. Defaults to fp32: q8 was measured to wreck the segmentation masks
- * on this model — a portrait's person mask went from 0.63 to 0.94 coverage,
- * swallowing most of the background. Set MODEL_DTYPE=q8 to trade quality for speed.
- */
-const DTYPE = process.env.MODEL_DTYPE || 'fp32';
+// Model loading, caching and disposal are shared — see utils/models.js.
+export { dispose } from './models.js';
 
 /** Longest edge fed to the model. Inference cost scales with pixels, and the
  *  library holds 4896px photos, so downscale first and upscale the mask after. */
@@ -24,28 +15,8 @@ export const MODELS = {
   detection:    process.env.DETECTION_MODEL    || 'Xenova/owlvit-base-patch32',
 };
 
-/** Loading a pipeline costs seconds, so hold one per task for the process lifetime. */
-const pipelines = new Map();
-
-async function getPipeline(task, model) {
-  const cacheKey = `${task}:${model}`;
-  if (!pipelines.has(cacheKey)) {
-    console.log(`vision: loading ${task} (${model}, ${DTYPE})…`);
-    pipelines.set(cacheKey, pipeline(task, model, { dtype: DTYPE }));
-  }
-  return pipelines.get(cacheKey);
-}
-
 export const getSegmenter = () => getPipeline('image-segmentation', MODELS.segmentation);
 export const getDetector  = () => getPipeline('zero-shot-object-detection', MODELS.detection);
-
-/** Release cached pipelines. Tests need this or the process will not exit. */
-export async function dispose() {
-  for (const p of pipelines.values()) {
-    try { (await p)?.dispose?.(); } catch { /* best effort */ }
-  }
-  pipelines.clear();
-}
 
 /**
  * Load an image with EXIF orientation applied, since the model and sharp

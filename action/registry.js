@@ -11,6 +11,7 @@ import normalize from './normalize.js';
 import effect from './effect.js';
 import montage from './montage.js';
 import render from './render.js';
+import speak from './speak.js';
 import play from './play.js';
 import record from './record.js';
 import removeAll from './removeAll.js';
@@ -41,6 +42,7 @@ export const ACTIONS = {
   render:     { fn: render,     queueable: true,  params: ['visual', 'audio', 'maxDim', 'background'] },
   effect:     { fn: effect,     queueable: true,  params: ['key', 'effect', 'factor', 'seconds', 'degrees', 'brightness', 'contrast', 'saturation', 'direction', 'to'] },
   montage:    { fn: montage,    queueable: true,  params: ['keys', 'from', 'count', 'seconds'] },
+  speak:      { fn: speak,      queueable: true,  params: ['key', 'narrate'] },
   upload:     { fn: upload,     queueable: true,  params: ['meta', 'data'] },
   normalize:  { fn: normalize,  queueable: true,  params: ['source'] },
   crop:       { fn: crop,       queueable: true,  params: ['key', 'start', 'duration'] },

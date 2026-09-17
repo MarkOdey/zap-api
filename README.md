@@ -114,6 +114,10 @@ npm install
 | `MONTAGE_FPS` | `25` | Montage frame rate |
 | `MONTAGE_STILL_SECONDS` | `3` | Seconds per still in a montage |
 | `MONTAGE_MAX_ITEMS` | `12` | Cap on items joined in one montage |
+| `TTS_MODEL` | `Xenova/mms-tts-eng` | Speech model; the MMS family covers many languages (`-fra`, `-deu`, …) |
+| `TTS_CHUNK_CHARS` | `300` | Longest text synthesised in one pass |
+| `TTS_MAX_CHARS` | `5000` | Text beyond this is truncated |
+| `TTS_BITRATE` | `128k` | mp3 bitrate for narration |
 | `OUTPUT_MAX_DIM` | `2048` | Long-edge cap for generated images |
 | `OUTPUT_FORMAT` | `webp` | Encoding for generated images; `png` for lossless |
 | `OUTPUT_QUALITY` | `90` | WebP quality (alpha is always kept at 100) |
@@ -180,6 +184,7 @@ node index.js removeAll   # drop all documents from the data collection
 | `render` | Builds a new video from a visual and an audio track (still + audio, or clip with its audio replaced). |
 | `effect` | Applies an ffmpeg effect to a clip, or animates a still: speed, reverse, fade, colour, greyscale, rotate, zoom, pan. |
 | `montage` | Joins several library items into one video, from explicit keys or by walking the edge graph. |
+| `speak` | Reads a text document aloud, storing the narration as audio and linking it as a soundtrack. |
 
 ---
 
@@ -380,3 +385,23 @@ directly. Stills are looped for `seconds` each.
 
 The edge-walk form gathers items breadth-first from `from`, following the same graph
 playback traverses, skipping `soundtrack` edges since audio has no frames.
+
+---
+
+## Text to speech
+
+```bash
+node index.js speak '{"key":"data/note.txt"}'
+```
+
+Synthesis runs through transformers.js, so it needs no system dependency beyond the
+ffmpeg already required — raw float samples are piped straight into ffmpeg rather than
+staging a WAV. The model is MMS-TTS, a VITS model needing no speaker embeddings, unlike
+SpeechT5.
+
+Text longer than `TTS_CHUNK_CHARS` is split on sentence boundaries (falling back to words
+for a single long sentence) and the pieces joined with a short gap.
+
+As well as the usual `derivative` edge, `speak` links a `soundtrack` edge from the text to
+its narration, so the text is read aloud when it comes up in playback. Pass
+`narrate: false` to skip that and leave the audio standalone.
