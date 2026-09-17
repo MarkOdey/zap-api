@@ -1,5 +1,5 @@
-const { spawn } = require('child_process');
-const path = require('path');
+import { spawn } from 'child_process';
+import path from 'path';
 
 function normalize(data) {
   return new Promise((resolve, reject) => {
@@ -29,4 +29,4 @@ function normalize(data) {
   });
 }
 
-module.exports = normalize;
+export default normalize;

@@ -1,12 +1,12 @@
-const MongoConnexion = require('../utils/MongoConnexion');
-const connect = require('../action/connect');
-const TYPES = require('../relation/statement');
+import MongoConnexion from '../utils/MongoConnexion.js';
+import connect from '../action/connect.js';
+import TYPES from '../relation/statement.js';
 
 const typeValues = Object.values(TYPES);
 
 async function relateTask() {
-  const mongoclient = await MongoConnexion.get();
-  const col = mongoclient.db('zap').collection('data');
+  const db = await MongoConnexion.db();
+  const col = db.collection('data');
 
   const items = await col.aggregate([{ $sample: { size: 2 } }]).toArray();
   if (items.length < 2) return;
@@ -17,4 +17,4 @@ async function relateTask() {
   await connect({ from: a.key, to: b.key, type, weight: 0.5 });
 }
 
-module.exports = relateTask;
+export default relateTask;

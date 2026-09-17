@@ -1,19 +1,33 @@
-const fs = require("fs").promises;
-const MongoConnexion = require("../utils/MongoConnexion");
-const update = require("./update.js");
+import fs from 'fs/promises';
+import { mediaUrl } from '../utils/mediaRoute.js';
+import MongoConnexion from '../utils/MongoConnexion.js';
+import update from './update.js';
 
 async function play(session) {
   if (!session?.socket) return;
 
-  const mongoclient = await MongoConnexion.get();
-  const col = mongoclient.db("zap").collection("data");
-  const edgeCol = mongoclient.db("zap").collection("edges");
+  const db = await MongoConnexion.db();
+  const col = db.collection("data");
+  const edgeCol = db.collection("edges");
 
   let data = null;
   let precedingEdge = null;
 
+  // A click in the list sets forcedKey. It wins over both edge traversal and
+  // weighted selection, and is consumed once so the loop resumes normally after.
+  if (session.forcedKey) {
+    const forced = await col.findOne({ key: session.forcedKey });
+    session.forcedKey = null;
+    if (forced) {
+      data = forced;
+      console.log('play: forced', forced.key);
+    } else {
+      console.warn('play: forced key not found', session.forcedKey);
+    }
+  }
+
   // Try edge traversal from the previous item
-  if (session.currentKey) {
+  if (!data && session.currentKey) {
     const edges = await edgeCol.find({ from: session.currentKey }).toArray();
     if (edges.length > 0) {
       const edge = edges[Math.floor(Math.random() * edges.length)];
@@ -26,10 +40,24 @@ async function play(session) {
     }
   }
 
-  // Fallback: weighted random selection
+  // Fallback: weighted random selection.
+  //
+  // $sample is load-bearing. findOne() has no sort, so it returns the *first*
+  // match in natural order — meaning a document was only ever reachable if its
+  // weight exceeded every weight before it in the collection. That left 4 of 47
+  // documents reachable here, and the rest unplayable.
   if (!data) {
-    data = await col.findOne({ weight: { $gt: Math.random() } });
-    if (!data) data = await col.findOne({});
+    const [hit] = await col.aggregate([
+      { $match: { weight: { $gt: Math.random() } } },
+      { $sample: { size: 1 } },
+    ]).toArray();
+    data = hit;
+
+    // Nothing outscored the threshold — take any document, still at random.
+    if (!data) {
+      const [any] = await col.aggregate([{ $sample: { size: 1 } }]).toArray();
+      data = any;
+    }
   }
 
   if (!data) {
@@ -38,14 +66,16 @@ async function play(session) {
     return;
   }
 
-  let src;
+  // Confirm the file is there, then hand over a URL rather than its bytes.
+  // Base64-over-socket could not stream or seek and sent whole files as single
+  // messages — the library's largest is 95MB. The client fetches /media/:key.
   try {
-    const buffer = await fs.readFile(data.source);
-    src = `data:${data.type};base64,${buffer.toString("base64")}`;
+    await fs.access(data.source);
   } catch (err) {
     console.warn("play: could not read file", data.source, err.message);
     return;
   }
+  const src = mediaUrl(data.key);
 
   // Track session state for like/dislike handlers
   session.currentKey = data.key;
@@ -61,4 +91,4 @@ async function play(session) {
   });
 }
 
-module.exports = play;
+export default play;

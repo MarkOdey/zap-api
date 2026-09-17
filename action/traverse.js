@@ -1,12 +1,12 @@
-const MongoConnexion = require('../utils/MongoConnexion');
+import MongoConnexion from '../utils/MongoConnexion.js';
 
 async function traverse({ key, type, direction } = {}) {
   if (!key) {
     console.warn('traverse: key is required');
     return [];
   }
-  const mongoclient = await MongoConnexion.get();
-  const col = mongoclient.db('zap').collection('edges');
+  const db = await MongoConnexion.db();
+  const col = db.collection('edges');
 
   let query;
   if (direction === 'from') {
@@ -24,4 +24,4 @@ async function traverse({ key, type, direction } = {}) {
   return edges;
 }
 
-module.exports = traverse;
+export default traverse;

@@ -1,8 +1,8 @@
-const fs = require("fs").promises;
-const path = require("path");
-const record = require("./record.js");
-const segment = require("./segment.js");
-const connect = require("./connect.js");
+import fs from 'fs/promises';
+import path from 'path';
+import record from './record.js';
+import segment from './segment.js';
+import connect from './connect.js';
 
 async function upload(data) {
   console.log("upload: video uploaded!!", data);
@@ -54,4 +54,4 @@ async function uploadVideo(source, meta) {
   return { segments: keys.length };
 }
 
-module.exports = upload;
+export default upload;

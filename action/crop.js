@@ -1,5 +1,5 @@
-const { spawn } = require('child_process');
-const find = require('./find.js');
+import { spawn } from 'child_process';
+import find from './find.js';
 
 async function crop(key, start = 0, duration = 3) {
   const file = await find(key);
@@ -24,4 +24,4 @@ async function crop(key, start = 0, duration = 3) {
   });
 }
 
-module.exports = crop;
+export default crop;

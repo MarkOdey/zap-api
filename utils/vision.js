@@ -1,0 +1,113 @@
+import { env, pipeline, RawImage } from '@huggingface/transformers';
+import sharp from 'sharp';
+
+/**
+ * Model weights are downloaded from the Hugging Face Hub on first use and cached
+ * on disk. Keep the cache inside the project (not node_modules) so a Docker
+ * volume can hold it — otherwise every container start re-downloads.
+ */
+env.cacheDir = process.env.MODEL_CACHE_DIR || './.models';
+
+/**
+ * Quantization. Defaults to fp32: q8 was measured to wreck the segmentation masks
+ * on this model — a portrait's person mask went from 0.63 to 0.94 coverage,
+ * swallowing most of the background. Set MODEL_DTYPE=q8 to trade quality for speed.
+ */
+const DTYPE = process.env.MODEL_DTYPE || 'fp32';
+
+/** Longest edge fed to the model. Inference cost scales with pixels, and the
+ *  library holds 4896px photos, so downscale first and upscale the mask after. */
+export const INFERENCE_MAX_DIM = Number(process.env.INFERENCE_MAX_DIM || 1024);
+
+export const MODELS = {
+  segmentation: process.env.SEGMENTATION_MODEL || 'Xenova/detr-resnet-50-panoptic',
+  detection:    process.env.DETECTION_MODEL    || 'Xenova/owlvit-base-patch32',
+};
+
+/** Loading a pipeline costs seconds, so hold one per task for the process lifetime. */
+const pipelines = new Map();
+
+async function getPipeline(task, model) {
+  const cacheKey = `${task}:${model}`;
+  if (!pipelines.has(cacheKey)) {
+    console.log(`vision: loading ${task} (${model}, ${DTYPE})…`);
+    pipelines.set(cacheKey, pipeline(task, model, { dtype: DTYPE }));
+  }
+  return pipelines.get(cacheKey);
+}
+
+export const getSegmenter = () => getPipeline('image-segmentation', MODELS.segmentation);
+export const getDetector  = () => getPipeline('zero-shot-object-detection', MODELS.detection);
+
+/** Release cached pipelines. Tests need this or the process will not exit. */
+export async function dispose() {
+  for (const p of pipelines.values()) {
+    try { (await p)?.dispose?.(); } catch { /* best effort */ }
+  }
+  pipelines.clear();
+}
+
+/**
+ * Load an image with EXIF orientation applied, since the model and sharp
+ * disagree about dimensions otherwise. Returns the full-size sharp pipeline,
+ * its true dimensions, and a downscaled RawImage to run inference on.
+ */
+export async function loadForInference(sourcePath, maxDim = INFERENCE_MAX_DIM) {
+  const image = sharp(sourcePath, { failOn: 'none' }).rotate();
+
+  // metadata() reports the stored dimensions, before EXIF rotation is applied.
+  // Orientations 5-8 rotate by 90°, so the dimensions the pipeline actually
+  // produces are swapped. Getting this wrong makes the mask the wrong shape.
+  const meta = await sharp(sourcePath).metadata();
+  if (!meta.width || !meta.height) throw new Error(`vision: cannot read dimensions of ${sourcePath}`);
+  const swapped = meta.orientation >= 5 && meta.orientation <= 8;
+  const width = swapped ? meta.height : meta.width;
+  const height = swapped ? meta.width : meta.height;
+
+  const scale = Math.min(1, maxDim / Math.max(width, height));
+  const inferWidth = Math.max(1, Math.round(width * scale));
+  const inferHeight = Math.max(1, Math.round(height * scale));
+
+  const { data, info } = await image
+    .clone()
+    .resize(inferWidth, inferHeight, { fit: 'fill' })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const raw = new RawImage(new Uint8ClampedArray(data), info.width, info.height, info.channels);
+  return { image, width, height, raw, scale };
+}
+
+/**
+ * Cut a shape out of an image using a model mask, returning a transparent PNG.
+ *
+ * The mask arrives at the inference size and is scaled back up. It is joined on
+ * as the alpha channel rather than composited: sharp's `dest-in` blend keys off
+ * the *alpha* of the overlay, so handing it an opaque greyscale mask silently
+ * keeps the whole image.
+ */
+export async function cutOut(image, mask, width, height) {
+  const alpha = await sharp(Buffer.from(mask.data), {
+    raw: { width: mask.width, height: mask.height, channels: mask.channels ?? 1 },
+  })
+    .resize(width, height, { fit: 'fill' })
+    .toColourspace('b-w')
+    .raw()
+    .toBuffer();
+
+  const rgb = await image.clone().removeAlpha().raw().toBuffer();
+
+  return sharp(rgb, { raw: { width, height, channels: 3 } })
+    .joinChannel(alpha, { raw: { width, height, channels: 1 } })
+    .png()
+    .toBuffer();
+}
+
+/** Fraction of the mask that is set — used to reject empty or whole-image masks. */
+export function maskCoverage(mask) {
+  const data = mask.data;
+  let on = 0;
+  for (let i = 0; i < data.length; i++) if (data[i] > 127) on++;
+  return on / data.length;
+}

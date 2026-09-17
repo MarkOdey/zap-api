@@ -1,9 +1,9 @@
-const { spawn } = require('child_process');
-const MongoConnexion = require('../utils/MongoConnexion');
+import { spawn } from 'child_process';
+import MongoConnexion from '../utils/MongoConnexion.js';
 
 async function concat() {
-  const mongoclient = await MongoConnexion.get();
-  const col = mongoclient.db('zap').collection('data');
+  const db = await MongoConnexion.db();
+  const col = db.collection('data');
 
   const random = Math.random();
   const docs = await col.find({ weight: { $gt: random, $lt: random + 0.3 } }).limit(2).toArray();
@@ -29,4 +29,4 @@ async function concat() {
   });
 }
 
-module.exports = concat;
+export default concat;

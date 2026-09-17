@@ -1,16 +1,12 @@
-const play      = require('./action/play.js');
-const find      = require('./action/find.js');
-const crop      = require('./action/crop.js');
-const concat    = require('./action/concat.js');
-const removeAll = require('./action/removeAll.js');
-const explore   = require('./action/explore.js');
-const upload    = require('./action/upload.js');
+import Session from './session.js';
+import Cognition from './cognition.js';
+import { COMMANDS } from './action/registry.js';
+import play from './action/play.js';
+import drainOne from './utils/worker.js';
 
-const Session   = require('./session.js');
-const Cognition = require('./cognition.js');
-
-// Actions available via CLI invocation
-const actions = { play, find, crop, concat, removeAll, explore, upload };
+import exploreTask from './cognition/explore.js';
+import relateTask  from './cognition/relate.js';
+import pruneTask   from './cognition/prune.js';
 
 // Register actions that connected sessions will run
 Session.addAction(play);
@@ -18,22 +14,38 @@ Session.addAction(play);
 // CLI: node index.js <action> [params]
 const cliAction = process.argv[2];
 if (cliAction) {
-  const actionFn = actions[cliAction];
+  const actionFn = COMMANDS[cliAction];
   if (actionFn) {
-    const params = process.argv[3];
+    // Actions like isolate/compose take an object, so accept JSON on the CLI:
+    //   node index.js isolate '{"key":"data/a.jpg","label":"person"}'
+    const raw = process.argv[3];
+    let params = raw;
+    if (raw?.trimStart().startsWith('{')) {
+      try {
+        params = JSON.parse(raw);
+      } catch (err) {
+        console.error('Invalid JSON parameter:', err.message);
+        process.exit(1);
+      }
+    }
     actionFn(params).then(() => process.exit(0)).catch(err => {
       console.error(err);
       process.exit(1);
     });
   } else {
     console.error('Unknown action:', cliAction);
-    console.error('Available:', Object.keys(actions).join(', '));
+    console.error('Available:', Object.keys(COMMANDS).join(', '));
     process.exit(1);
   }
 }
 
 const cognition = new Cognition();
-cognition.register('explore', require('./cognition/explore'),  60 * 1000);
-cognition.register('relate',  require('./cognition/relate'),   30 * 1000);
-cognition.register('prune',   require('./cognition/prune'),   120 * 1000);
+// Drain the job queue often; Cognition reschedules only after a run settles, so a
+// 20s inference job cannot be overlapped by the next tick.
+cognition.register('queue',   drainOne,    500);
+cognition.register('explore', exploreTask, 60 * 1000);
+cognition.register('relate',  relateTask,  30 * 1000);
+cognition.register('prune',   pruneTask,  120 * 1000);
 cognition.start();
+
+Session.attachCognition(cognition);

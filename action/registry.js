@@ -1,0 +1,68 @@
+import appreciate from './appreciate.js';
+import compose from './compose.js';
+import concat from './concat.js';
+import connect from './connect.js';
+import crop from './crop.js';
+import disconnect from './disconnect.js';
+import explore from './explore.js';
+import find from './find.js';
+import isolate from './isolate.js';
+import list from './list.js';
+import normalize from './normalize.js';
+import play from './play.js';
+import record from './record.js';
+import removeAll from './removeAll.js';
+import traverse from './traverse.js';
+import update from './update.js';
+import updateEdge from './updateEdge.js';
+import upload from './upload.js';
+
+/**
+ * The one place actions are named.
+ *
+ * Used by the CLI (index.js), the terminal dispatcher (session.js) and the job
+ * queue worker, so a new action becomes available everywhere by being added here.
+ *
+ * `queueable: true` means the action is slow enough to be worth running through
+ * the queue rather than inline — the vision actions take ~20s, explore scales
+ * with the library.
+ */
+export const ACTIONS = {
+  explore:    { fn: explore,    queueable: true,  params: [] },
+  isolate:    { fn: isolate,    queueable: true,  params: ['key', 'label', 'all'] },
+  compose:    { fn: compose,    queueable: true,  params: ['from', 'to', 'label', 'scale', 'x', 'y', 'opacity'] },
+  upload:     { fn: upload,     queueable: true,  params: ['meta', 'data'] },
+  normalize:  { fn: normalize,  queueable: true,  params: ['source'] },
+  crop:       { fn: crop,       queueable: true,  params: ['key', 'start', 'duration'] },
+  concat:     { fn: concat,     queueable: true,  params: [] },
+
+  find:       { fn: find,       queueable: false, params: ['key'] },
+  list:       { fn: list,       queueable: false, params: ['skip', 'limit', 'sort', 'order', 'type', 'search'] },
+  record:     { fn: record,     queueable: false, params: ['key', 'source', 'name', 'type', 'weight'] },
+  update:     { fn: update,     queueable: false, params: ['key', 'weight'] },
+  connect:    { fn: connect,    queueable: false, params: ['from', 'to', 'type', 'weight'] },
+  disconnect: { fn: disconnect, queueable: false, params: ['from', 'to', 'type'] },
+  updateEdge: { fn: updateEdge, queueable: false, params: ['key', 'weight'] },
+  traverse:   { fn: traverse,   queueable: false, params: ['key', 'type', 'direction'] },
+  appreciate: { fn: appreciate, queueable: false, params: ['key', 'edgeKey', 'delta'] },
+  removeAll:  { fn: removeAll,  queueable: false, params: [] },
+
+  // Needs a live session, so it is CLI/loop only — not a terminal command.
+  play:       { fn: play,       queueable: false, params: [], needsSession: true },
+};
+
+/** name → fn, for callers that just want to dispatch. */
+export const COMMANDS = Object.fromEntries(
+  Object.entries(ACTIONS).map(([name, spec]) => [name, spec.fn]),
+);
+
+/** Serializable description of every action, for the client's terminal autocomplete. */
+export const describe = () =>
+  Object.entries(ACTIONS).map(([name, spec]) => ({
+    name,
+    params: spec.params,
+    queueable: !!spec.queueable,
+    needsSession: !!spec.needsSession,
+  }));
+
+export default ACTIONS;

@@ -1,12 +1,17 @@
-const MongoConnexion = require('../utils/MongoConnexion');
+import MongoConnexion from '../utils/MongoConnexion.js';
+import { normalize, validate } from '../model/document.js';
 
 async function record(data) {
-  if (!data.key) throw new Error('record: no key specified');
-  const mongoclient = await MongoConnexion.get();
-  const col = mongoclient.db('zap').collection('data');
-  data.weight = data.weight ?? Math.random();
-  await col.updateOne({ key: data.key }, { $set: data }, { upsert: true });
-  console.log('record updated:', data.key);
+  if (!data?.key) throw new Error('record: no key specified');
+
+  const doc = normalize(data);
+  const { valid, errors } = validate(doc);
+  if (!valid) throw new Error(`record: invalid document ${doc.key} — ${errors.join('; ')}`);
+
+  const db = await MongoConnexion.db();
+  const col = db.collection('data');
+  await col.updateOne({ key: doc.key }, { $set: doc }, { upsert: true });
+  console.log('record updated:', doc.key);
 }
 
-module.exports = record;
+export default record;

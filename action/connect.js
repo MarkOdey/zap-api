@@ -1,12 +1,12 @@
-const MongoConnexion = require('../utils/MongoConnexion');
+import MongoConnexion from '../utils/MongoConnexion.js';
 
 async function connect({ from, to, type, weight = 0.5 } = {}) {
   if (!from || !to || !type) {
     console.warn('connect: from, to, and type are required');
     return;
   }
-  const mongoclient = await MongoConnexion.get();
-  const col = mongoclient.db('zap').collection('edges');
+  const db = await MongoConnexion.db();
+  const col = db.collection('edges');
 
   const key = `${from}::${type}::${to}`;
   const doc = { key, from, to, type, weight };
@@ -16,4 +16,4 @@ async function connect({ from, to, type, weight = 0.5 } = {}) {
   return doc;
 }
 
-module.exports = connect;
+export default connect;

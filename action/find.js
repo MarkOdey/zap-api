@@ -1,12 +1,12 @@
-const MongoConnexion = require('../utils/MongoConnexion');
+import MongoConnexion from '../utils/MongoConnexion.js';
 
 async function find(key) {
   console.log('finding data with key:', key);
-  const mongoclient = await MongoConnexion.get();
-  const col = mongoclient.db('zap').collection('data');
+  const db = await MongoConnexion.db();
+  const col = db.collection('data');
   const data = await col.findOne({ key });
-  console.log('found asset:', data?.SourceFile);
+  console.log('found asset:', data?.source ?? '(not found)');
   return data;
 }
 
-module.exports = find;
+export default find;

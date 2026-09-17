@@ -1,11 +1,11 @@
-const fs = require("fs").promises;
-const path = require("path");
-const mime = require("mime");
-const MongoConnexion = require("../utils/MongoConnexion");
+import fs from 'fs/promises';
+import path from 'path';
+import MongoConnexion from '../utils/MongoConnexion.js';
+import { normalize, validate } from '../model/document.js';
 
 async function explore() {
-  const mongoclient = await MongoConnexion.get();
-  const col = mongoclient.db("zap").collection("data");
+  const db = await MongoConnexion.db();
+  const col = db.collection("data");
   const dataDir = process.env.DATA_DIR || "./data";
 
   let files;
@@ -18,25 +18,39 @@ async function explore() {
 
   const EXCLUDED_EXTENSIONS = new Set([".mov"]);
 
+  let indexed = 0;
+  let skipped = 0;
+
   for (const filename of files) {
     if (EXCLUDED_EXTENSIONS.has(path.extname(filename).toLowerCase())) {
       console.log("explore: skipping", filename);
+      skipped++;
       continue;
     }
     const filePath = path.join(dataDir, filename);
-    const doc = {
-      key: filePath,
-      name: filename,
-      source: filePath,
-      type: mime.getType(filename) || "",
-      weight: Math.random(),
-    };
+    const doc = normalize({ source: filePath, name: filename });
 
-    await col.updateOne({ key: doc.key }, { $set: doc }, { upsert: false });
+    const { valid, errors } = validate(doc);
+    if (!valid) {
+      console.warn("explore: skipping invalid document", filename, "—", errors.join("; "));
+      skipped++;
+      continue;
+    }
+
+    // Refresh the file fields, but let `weight` be set only on insert — $set-ing
+    // the whole document re-randomized every weight on every scan, destroying
+    // every like and dislike the session loop had accumulated.
+    const { weight, ...fields } = doc;
+    await col.updateOne(
+      { key: doc.key },
+      { $set: fields, $setOnInsert: { weight } },
+      { upsert: true },
+    );
+    indexed++;
     console.log("indexed:", filename);
   }
 
-  console.log("explore: done indexing", files.length, "files");
+  console.log(`explore: done — ${indexed} indexed, ${skipped} skipped, ${files.length} seen`);
 }
 
-module.exports = explore;
+export default explore;

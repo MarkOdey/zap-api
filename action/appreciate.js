@@ -1,12 +1,12 @@
-const MongoConnexion = require('../utils/MongoConnexion');
-const update = require('./update');
-const updateEdge = require('./updateEdge');
+import MongoConnexion from '../utils/MongoConnexion.js';
+import update from './update.js';
+import updateEdge from './updateEdge.js';
 
 async function appreciate({ key, edgeKey, delta }) {
   if (!key) return;
 
-  const mongoclient = await MongoConnexion.get();
-  const col = mongoclient.db('zap').collection('data');
+  const db = await MongoConnexion.db();
+  const col = db.collection('data');
   const data = await col.findOne({ key });
   if (!data) return;
 
@@ -18,7 +18,7 @@ async function appreciate({ key, edgeKey, delta }) {
   console.log('appreciate: data weight →', data.weight, '(delta', delta, ')');
 
   if (edgeKey) {
-    const edgeCol = mongoclient.db('zap').collection('edges');
+    const edgeCol = db.collection('edges');
     const edge = await edgeCol.findOne({ key: edgeKey });
     if (edge) {
       const newWeight = delta > 0
@@ -29,4 +29,4 @@ async function appreciate({ key, edgeKey, delta }) {
   }
 }
 
-module.exports = appreciate;
+export default appreciate;

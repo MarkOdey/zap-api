@@ -16,6 +16,8 @@ services:
       - mongo
     volumes:
       - ./data:/app/data
+      - models:/app/.models
 
 volumes:
   mongo_data:
+  models:

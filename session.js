@@ -1,36 +1,61 @@
-const express = require("express");
-const app = express();
-app.use(express.static("../"));
+import http from "node:http";
+import express from "express";
+import { Server } from "socket.io";
 
-const io = require("socket.io")(process.env.PORT || 3000, {
+import appreciate from "./action/appreciate.js";
+import { ACTIONS, COMMANDS, describe } from "./action/registry.js";
+import queue from "./utils/queue.js";
+import { mountMedia } from "./utils/mediaRoute.js";
+
+const PORT = process.env.PORT || 3000;
+
+// One HTTP server shared by express and Socket.IO. Previously the Server bound
+// its own port and the express app was never attached, so it served nothing.
+const app = express();
+mountMedia(app);
+
+const server = http.createServer(app);
+
+const io = new Server(server, {
   cors: {
     origin: process.env.CORS_ORIGIN || "http://localhost:5173",
     methods: ["GET", "POST"],
   },
-  maxHttpBufferSize: 500 * 1024 * 1024, // 500 MB — needed for base64 video uploads
+  // Still needed: uploads arrive as base64 over the socket. Playback no longer
+  // does — it goes over HTTP via /media/:key.
+  maxHttpBufferSize: 500 * 1024 * 1024,
 });
 
-console.log("socket.io listening on port", process.env.PORT || 3000);
+server.listen(PORT, () => {
+  console.log("http + socket.io listening on port", PORT);
+});
 
-// Named command dispatcher — replaces eval()
-const appreciate = require("./action/appreciate.js");
+let cognition = null;
 
-const COMMANDS = {
-  explore: require("./action/explore.js"),
-  find: require("./action/find.js"),
-  removeAll: require("./action/removeAll.js"),
-  normalize: require("./action/normalize.js"),
-  crop: require("./action/crop.js"),
-  concat: require("./action/concat.js"),
-  upload: require("./action/upload.js"),
-  connect: require("./action/connect.js"),
-  disconnect: require("./action/disconnect.js"),
-  traverse: require("./action/traverse.js"),
+/** index.js hands the scheduler over so its status can be broadcast. */
+Session.attachCognition = function (instance) {
+  cognition = instance;
 };
+
+const status = () => ({ ...queue.snapshot(), tasks: cognition?.status() ?? [] });
+
+// One listener for the whole process: every job transition reaches every client.
+queue.on("change", (job) => {
+  io.emit("queue:update", { job, pending: queue.length, tasks: cognition?.status() ?? [] });
+});
+
+// Push scheduler state on a slow heartbeat so countdowns stay honest even when
+// no job is moving.
+setInterval(() => {
+  if (cognition) io.emit("queue:tasks", cognition.status());
+}, 2000).unref();
 
 io.on("connection", function (socket) {
   console.log("user connected:", socket.id);
   socket.emit("connected");
+
+  socket.emit("queue:state", status());
+  socket.emit("commands", describe());
 
   const session = new Session(socket);
   session.update();
@@ -75,6 +100,8 @@ function Session(socket) {
     }
   };
 
+  socket.on("current", () => socket.emit("current", { key: self.currentKey ?? null }));
+
   socket.on("pause", () => {
     console.log("session paused:", socket.id);
     paused = true;
@@ -86,14 +113,66 @@ function Session(socket) {
     self.update();
   });
 
-  socket.on("explore", async () => {
-    console.log("explore triggered by:", socket.id);
+  // Kept for older clients: explore is just another queued job now.
+  socket.on("explore", () => {
+    console.log("explore queued by:", socket.id);
+    queue.push("explore");
+  });
+
+  socket.on("queue:push", (data, ack) => {
+    let action, params;
     try {
-      await COMMANDS.explore();
-      socket.emit("explored");
-      console.log("explore complete");
+      const parsed = typeof data === "string" ? JSON.parse(data) : data;
+      action = parsed?.action;
+      params = parsed?.params ?? {};
+    } catch {
+      action = null;
+    }
+
+    const spec = ACTIONS[action];
+    if (!spec) {
+      const error = `unknown action: ${action}`;
+      console.warn("queue:push", error);
+      if (typeof ack === "function") ack({ ok: false, error });
+      return;
+    }
+
+    const job = queue.push(action, params);
+    console.log(`queue: ${action} pushed by ${socket.id} (${job.id})`);
+    if (typeof ack === "function") ack({ ok: true, id: job.id });
+  });
+
+  socket.on("queue:cancel", ({ id } = {}) => {
+    const job = queue.cancel(id);
+    console.log(job ? `queue: cancelled ${id}` : `queue: cannot cancel ${id}`);
+  });
+
+  socket.on("queue:state", () => socket.emit("queue:state", status()));
+
+  socket.on("list", async (params, ack) => {
+    try {
+      const page = await COMMANDS.list(params ?? {});
+      const payload = { ...page, currentKey: self.currentKey ?? null };
+      if (typeof ack === "function") ack(payload);
+      else socket.emit("listed", payload);
     } catch (err) {
-      console.error("explore error:", err.message);
+      console.error("list error:", err.message);
+      if (typeof ack === "function") ack({ error: err.message });
+      else socket.emit("listed", { error: err.message });
+    }
+  });
+
+  // Force the next item. The loop is parked awaiting resolve/reject inside
+  // play(), so ending that wait is what lets the new key take effect — the
+  // client emits reject straight after. Resuming from paused is handled here so
+  // a click works whether or not the loop is running.
+  socket.on("playKey", ({ key } = {}) => {
+    if (!key) return;
+    self.forcedKey = key;
+    console.log("play: queued forced key", key);
+    if (paused) {
+      paused = false;
+      self.update();
     }
   });
 
@@ -107,17 +186,28 @@ function Session(socket) {
       actionName = String(data);
     }
 
-    const actionFn = COMMANDS[actionName];
-    if (!actionFn) {
+    const spec = ACTIONS[actionName];
+    if (!spec) {
       console.warn("unknown command:", actionName);
+      socket.emit("run:error", { action: actionName, error: `unknown command: ${actionName}` });
+      return;
+    }
+
+    // Slow actions go through the queue so the client can watch them; quick ones
+    // run inline and answer immediately.
+    if (spec.queueable) {
+      const job = queue.push(actionName, params ?? {});
+      socket.emit("run:queued", { action: actionName, id: job.id });
       return;
     }
 
     try {
-      await actionFn(params !== undefined ? params : self);
+      const result = await spec.fn(params !== undefined ? params : self);
+      socket.emit("run:done", { action: actionName, result: result ?? null });
       console.log("terminal command resolved:", actionName);
     } catch (err) {
       console.error("terminal command error:", actionName, err.message);
+      socket.emit("run:error", { action: actionName, error: err.message });
     }
   });
 
@@ -172,4 +262,4 @@ Session.addAction = function (actionFn) {
   Session.actions.push(actionFn);
 };
 
-module.exports = Session;
+export default Session;

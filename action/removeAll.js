@@ -1,10 +1,10 @@
-const MongoConnexion = require('../utils/MongoConnexion');
+import MongoConnexion from '../utils/MongoConnexion.js';
 
 async function removeAll() {
-  const mongoclient = await MongoConnexion.get();
-  const col = mongoclient.db('zap').collection('data');
+  const db = await MongoConnexion.db();
+  const col = db.collection('data');
   const result = await col.deleteMany({});
   console.log('removed', result.deletedCount, 'assets');
 }
 
-module.exports = removeAll;
+export default removeAll;

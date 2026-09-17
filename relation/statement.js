@@ -1,4 +1,4 @@
-module.exports = {
+export default {
   FAMILY:         'family',
   LOCATION:       'location',
   THEME:          'theme',

@@ -1,6 +1,6 @@
-const { spawn } = require("child_process");
-const path = require("path");
-const fs = require("fs").promises;
+import { spawn } from 'child_process';
+import path from 'path';
+import fs from 'fs/promises';
 
 async function segment(sourcePath, segmentDuration = 30) {
   const ext = path.extname(sourcePath);
@@ -51,4 +51,4 @@ async function segment(sourcePath, segmentDuration = 30) {
   return segments;
 }
 
-module.exports = segment;
+export default segment;
