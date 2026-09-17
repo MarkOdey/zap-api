@@ -1,15 +1,30 @@
 import { spawn } from 'child_process';
+import path from 'path';
 import find from './find.js';
 
-async function crop(key, start = 0, duration = 3) {
+/** Accepts (key, start, duration) from the CLI or {key, start, duration}. */
+async function crop(params, startArg, durationArg) {
+  const named = typeof params === 'object' && params !== null;
+  const key = named ? params.key : params;
+  const start = (named ? params.start : startArg) ?? 0;
+  const duration = (named ? params.duration : durationArg) ?? 3;
+
+  if (!key) throw new Error('crop: key is required');
+
   const file = await find(key);
   if (!file) throw new Error('crop: file not found for key ' + key);
 
-  const filename = ('./data/' + start + duration + file.FileName).replace(/\./g, '');
+  // `source`/`name`, not SourceFile/FileName — those were exiftool fields that
+  // nothing has written since the document model landed.
+  const base = path.basename(file.name ?? 'clip', path.extname(file.name ?? ''));
+  const filename = path.join(
+    path.dirname(file.source),
+    `${base}.crop-${start}-${duration}${path.extname(file.source)}`,
+  );
 
   return new Promise((resolve, reject) => {
     const proc = spawn('ffmpeg', [
-      '-i', file.SourceFile, '-y',
+      '-i', file.source, '-y',
       '-ss', start, '-t', duration,
       '-acodec', 'copy', '-vcodec', 'copy',
       '-async', '1', filename

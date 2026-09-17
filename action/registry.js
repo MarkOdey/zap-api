@@ -1,6 +1,5 @@
 import appreciate from './appreciate.js';
 import compose from './compose.js';
-import concat from './concat.js';
 import connect from './connect.js';
 import crop from './crop.js';
 import disconnect from './disconnect.js';
@@ -27,6 +26,11 @@ import upload from './upload.js';
  * the queue rather than inline — the vision actions take ~20s, explore scales
  * with the library.
  */
+// `concat` is deliberately absent: it shells out to ./action/mmcat, a binary that
+// exists nowhere in the repo or the image, and reads SourceFile/FileName — exiftool
+// fields nothing has written since the document model landed. Listing it would put a
+// command in the terminal that can only ever fail. The file is kept for whoever
+// reimplements it with ffmpeg.
 export const ACTIONS = {
   explore:    { fn: explore,    queueable: true,  params: [] },
   isolate:    { fn: isolate,    queueable: true,  params: ['key', 'label', 'all'] },
@@ -34,7 +38,6 @@ export const ACTIONS = {
   upload:     { fn: upload,     queueable: true,  params: ['meta', 'data'] },
   normalize:  { fn: normalize,  queueable: true,  params: ['source'] },
   crop:       { fn: crop,       queueable: true,  params: ['key', 'start', 'duration'] },
-  concat:     { fn: concat,     queueable: true,  params: [] },
 
   find:       { fn: find,       queueable: false, params: ['key'] },
   list:       { fn: list,       queueable: false, params: ['skip', 'limit', 'sort', 'order', 'type', 'search'] },
