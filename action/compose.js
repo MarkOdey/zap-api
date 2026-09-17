@@ -1,3 +1,4 @@
+import fs from 'fs/promises';
 import path from 'path';
 import sharp from 'sharp';
 
@@ -6,6 +7,7 @@ import record from './record.js';
 import connect from './connect.js';
 import isolate from './isolate.js';
 import { isDerivative } from '../model/document.js';
+import { encodeDerived } from '../utils/vision.js';
 
 /** Stop generated images being fed back in indefinitely. */
 const MAX_DERIVATION_DEPTH = Number(process.env.MAX_DERIVATION_DEPTH || 3);
@@ -83,18 +85,23 @@ async function compose({ from, to, label, scale = 0.5, x, y = 0.5, opacity = 1 }
   const dataDir = process.env.DATA_DIR || './data';
   const targetBase = path.basename(target.source, path.extname(target.source));
   const sourceBase = path.basename(sourceDoc.source, path.extname(sourceDoc.source));
-  const outPath = path.join(dataDir, `${targetBase}.mix-${sourceBase}.png`.replace(/\.cut-/g, '-'));
-
-  await targetImage
+  const composed = await targetImage
     .composite([{ input: overlay, left, top }])
     .png()
-    .toFile(outPath);
+    .toBuffer();
+
+  const out = await encodeDerived(composed);
+  const outPath = path.join(
+    dataDir,
+    `${targetBase}.mix-${sourceBase}.${out.ext}`.replace(/\.cut-/g, '-'),
+  );
+  await fs.writeFile(outPath, out.buffer);
 
   await record({
     key: outPath,
     source: outPath,
     name: path.basename(outPath),
-    type: 'image/png',
+    type: out.mime,
     generator: 'compose',
     derivedFrom: [sourceDoc.key, target.key],
   });

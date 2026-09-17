@@ -105,6 +105,9 @@ npm install
 | `INFERENCE_MAX_DIM` | `1024` | Longest edge fed to the model; masks are scaled back up |
 | `SEGMENTATION_MODEL` | `Xenova/detr-resnet-50-panoptic` | Segmentation model |
 | `MAX_DERIVATION_DEPTH` | `3` | Refuse to compose onto an image this many generations deep |
+| `OUTPUT_MAX_DIM` | `2048` | Long-edge cap for generated images |
+| `OUTPUT_FORMAT` | `webp` | Encoding for generated images; `png` for lossless |
+| `OUTPUT_QUALITY` | `90` | WebP quality (alpha is always kept at 100) |
 | `QUEUE_HISTORY` | `50` | Finished jobs kept for the status view |
 
 ---
@@ -243,6 +246,11 @@ re-download on every start.
   of the background.
 - Compositing is alpha blending, not Poisson blending. There is no `seamlessClone`
   equivalent in sharp, so pasted regions read as pasted. See `TODO.md` item 2.
+- Generated images are capped at `OUTPUT_MAX_DIM` and written as WebP. Full-resolution
+  lossless PNG was pathological for photographic cutouts: a 16MP person cutout came out
+  at 15MB — four times the JPEG it was cut from — because a 93%-coverage mask left
+  `trim()` nothing to crop. The same cutout is now 170KB. Measured alternatives: webp q90
+  0.64MB uncapped, AVIF smaller again but 26s to encode, which would dominate the queue.
 
 ---
 

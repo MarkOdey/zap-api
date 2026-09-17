@@ -104,6 +104,49 @@ export async function cutOut(image, mask, width, height) {
     .toBuffer();
 }
 
+/**
+ * Output encoding for generated images.
+ *
+ * Cutouts were written as full-resolution lossless PNG, which is the worst case
+ * for photographic content: one 16MP person cutout came out at 15MB — four times
+ * larger than the JPEG it was cut from — because a 93%-coverage mask left trim()
+ * nothing to crop. Downscaling and WebP takes the same file to 0.17MB.
+ *
+ * Measured on that file: png 14.97MB, webp q90 0.64MB, and 0.17MB once capped at
+ * 2048px. AVIF is smaller again but took 26s to encode, which would dominate the
+ * job queue for a marginal win.
+ */
+export const OUTPUT_MAX_DIM = Number(process.env.OUTPUT_MAX_DIM || 2048);
+export const OUTPUT_FORMAT = (process.env.OUTPUT_FORMAT || 'webp').toLowerCase();
+export const OUTPUT_QUALITY = Number(process.env.OUTPUT_QUALITY || 90);
+
+/**
+ * Encode a generated image: cap its long edge, then compress.
+ * @returns {Promise<{buffer: Buffer, ext: string, mime: string, width: number, height: number}>}
+ */
+export async function encodeDerived(input) {
+  let pipe = sharp(input).resize({
+    width: OUTPUT_MAX_DIM,
+    height: OUTPUT_MAX_DIM,
+    fit: 'inside',
+    withoutEnlargement: true,
+  });
+
+  // alphaQuality 100 keeps cutout edges clean; the colour channels carry the loss.
+  pipe = OUTPUT_FORMAT === 'png'
+    ? pipe.png({ compressionLevel: 9 })
+    : pipe.webp({ quality: OUTPUT_QUALITY, alphaQuality: 100 });
+
+  const { data, info } = await pipe.toBuffer({ resolveWithObject: true });
+  return {
+    buffer: data,
+    ext: OUTPUT_FORMAT,
+    mime: `image/${OUTPUT_FORMAT}`,
+    width: info.width,
+    height: info.height,
+  };
+}
+
 /** Fraction of the mask that is set — used to reject empty or whole-image masks. */
 export function maskCoverage(mask) {
   const data = mask.data;

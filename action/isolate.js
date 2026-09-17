@@ -1,10 +1,11 @@
+import fs from 'fs/promises';
 import path from 'path';
 import sharp from 'sharp';
 
 import find from './find.js';
 import record from './record.js';
 import connect from './connect.js';
-import { getSegmenter, loadForInference, cutOut, maskCoverage } from '../utils/vision.js';
+import { getSegmenter, loadForInference, cutOut, maskCoverage, encodeDerived } from '../utils/vision.js';
 
 /** Panoptic labels that describe backdrop rather than a subject worth cutting out. */
 const BACKDROP = /^(wall|sky|floor|ceiling|ground|road|pavement|rug|dirt|sand|water|sea|grass|tree|LABEL_)/i;
@@ -64,22 +65,24 @@ async function isolate({ key, label, all = false } = {}) {
   for (const [index, segment] of chosen.entries()) {
     const cut = await cutOut(image, segment.mask, width, height);
 
-    // trim() drops the fully transparent border left by the mask
+    // trim() drops the fully transparent border left by the mask. It can do
+    // nothing when a poor mask reaches the frame edges, which is why the encode
+    // step caps the size rather than relying on the crop.
     const trimmed = await sharp(cut).trim({ threshold: 0 }).png().toBuffer();
-    const meta = await sharp(trimmed).metadata();
+    const out = await encodeDerived(trimmed);
 
     // A panoptic result can hold several segments with the same label (two people,
     // say), so the index keeps them from overwriting each other.
     const safeLabel = (segment.label ?? 'segment').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
     const suffix = chosen.length > 1 ? `-${index}` : '';
-    const outPath = path.join(dataDir, `${base}.cut-${safeLabel}${suffix}.png`);
-    await sharp(trimmed).toFile(outPath);
+    const outPath = path.join(dataDir, `${base}.cut-${safeLabel}${suffix}.${out.ext}`);
+    await fs.writeFile(outPath, out.buffer);
 
     await record({
       key: outPath,
       source: outPath,
       name: path.basename(outPath),
-      type: 'image/png',
+      type: out.mime,
       generator: 'isolate',
       derivedFrom: [doc.key],
       label: segment.label,
@@ -88,7 +91,7 @@ async function isolate({ key, label, all = false } = {}) {
 
     await connect({ from: doc.key, to: outPath, type: 'derivative', weight: 0.8 });
 
-    console.log(`isolate: ${segment.label} → ${outPath} (${meta.width}x${meta.height})`);
+    console.log(`isolate: ${segment.label} → ${outPath} (${out.width}x${out.height}, ${(out.buffer.length / 1024).toFixed(0)}KB)`);
     cutouts.push(outPath);
   }
 
