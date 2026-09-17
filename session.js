@@ -211,29 +211,27 @@ function Session(socket) {
     }
   });
 
-  socket.on("like", async () => {
+  // `self`, not `session`: Session is a module-level function, so the `session`
+  // const inside the connection callback is not in its scope chain. Referencing
+  // it threw ReferenceError on every click, so no appreciation ever landed.
+  const appreciateCurrent = async (delta, label) => {
+    if (!self.currentKey) {
+      console.warn(`${label}: nothing is playing`);
+      return;
+    }
     try {
       await appreciate({
-        key: session.currentKey,
-        edgeKey: session.precedingEdge?.key,
-        delta: +0.1,
+        key: self.currentKey,
+        edgeKey: self.precedingEdge?.key,
+        delta,
       });
     } catch (err) {
-      console.error("like error:", err.message);
+      console.error(`${label} error:`, err.message);
     }
-  });
+  };
 
-  socket.on("dislike", async () => {
-    try {
-      await appreciate({
-        key: session.currentKey,
-        edgeKey: session.precedingEdge?.key,
-        delta: -0.1,
-      });
-    } catch (err) {
-      console.error("dislike error:", err.message);
-    }
-  });
+  socket.on("like", () => appreciateCurrent(+0.1, "like"));
+  socket.on("dislike", () => appreciateCurrent(-0.1, "dislike"));
 
   socket.on("upload", async function (data) {
     console.log("upload event received!");
