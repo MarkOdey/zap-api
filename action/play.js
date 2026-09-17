@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import { mediaUrl } from '../utils/mediaRoute.js';
+import { SOUNDTRACK } from '../relation/statement.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 import update from './update.js';
 
@@ -28,7 +29,11 @@ async function play(session) {
 
   // Try edge traversal from the previous item
   if (!data && session.currentKey) {
-    const edges = await edgeCol.find({ from: session.currentKey }).toArray();
+    // Soundtrack edges pair a document with audio; they are not a route to the
+    // next item, so they must not be traversed.
+    const edges = await edgeCol
+      .find({ from: session.currentKey, type: { $ne: SOUNDTRACK } })
+      .toArray();
     if (edges.length > 0) {
       const edge = edges[Math.floor(Math.random() * edges.length)];
       const candidate = await col.findOne({ key: edge.to });
@@ -77,12 +82,25 @@ async function play(session) {
   }
   const src = mediaUrl(data.key);
 
+  // A3: a still can carry a soundtrack. Linked by edge rather than by changing the
+  // document schema, which would break the one-file-one-document assumption in
+  // explore, record, find and list.
+  let audio = null;
+  const track = await edgeCol.findOne({ from: data.key, type: SOUNDTRACK });
+  if (track) {
+    const audioDoc = await col.findOne({ key: track.to });
+    if (audioDoc?.type?.includes('audio')) {
+      audio = { key: audioDoc.key, name: audioDoc.name, src: mediaUrl(audioDoc.key) };
+      console.log('play: with soundtrack', audioDoc.key);
+    }
+  }
+
   // Track session state for like/dislike handlers
   session.currentKey = data.key;
   session.precedingEdge = precedingEdge;
 
   console.log("play: emitting", data.source);
-  session.socket.emit("play", { ...data, src });
+  session.socket.emit("play", { ...data, src, audio });
 
   // Wait for playback completion signal (resolve/reject)
   await new Promise((resolve) => {
