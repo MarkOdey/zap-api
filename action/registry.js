@@ -1,3 +1,4 @@
+import adjust from './adjust.js';
 import appreciate from './appreciate.js';
 import compose from './compose.js';
 import connect from './connect.js';
@@ -41,8 +42,9 @@ export const ACTIONS = {
   isolate:    { fn: isolate,    queueable: true,  params: ['key', 'label', 'all'] },
   compose:    { fn: compose,    queueable: true,  params: ['from', 'to', 'label', 'scale', 'x', 'y', 'opacity'] },
   render:     { fn: render,     queueable: true,  params: ['visual', 'audio', 'maxDim', 'background'] },
+  adjust:     { fn: adjust,     queueable: true,  params: ['key', 'adjust', 'sigma', 'brightness', 'saturation', 'hue', 'colour', 'value', 'levels', 'degrees'] },
   effect:     { fn: effect,     queueable: true,  params: ['key', 'effect', 'factor', 'seconds', 'degrees', 'brightness', 'contrast', 'saturation', 'direction', 'to'] },
-  montage:    { fn: montage,    queueable: true,  params: ['keys', 'from', 'count', 'seconds'] },
+  montage:    { fn: montage,    queueable: true,  params: ['keys', 'from', 'count', 'seconds', 'audio'] },
   speak:      { fn: speak,      queueable: true,  params: ['key', 'narrate'] },
   upload:     { fn: upload,     queueable: true,  params: ['meta', 'data'] },
   normalize:  { fn: normalize,  queueable: true,  params: ['source'] },

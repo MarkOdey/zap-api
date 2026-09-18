@@ -186,8 +186,9 @@ node index.js removeAll   # drop all documents from the data collection
 | `isolate` | Segments an indexed image and saves each cut-out shape as a transparent PNG. |
 | `compose` | Mixes a shape isolated from one image into another, saving the composite. |
 | `render` | Builds a new video from a visual and an audio track — a still, a clip, or a text document rendered as a frame. |
-| `effect` | Applies an ffmpeg effect to a clip, or animates a still: speed, reverse, fade, colour, greyscale, rotate, zoom, pan. |
-| `montage` | Joins several library items into one video, from explicit keys or by walking the edge graph. |
+| `effect` | ffmpeg effect on a clip, or motion from a still: speed, reverse, fade, colour, greyscale, rotate, zoom, zoomout, pan, kenburns. |
+| `adjust` | Still-to-still image adjustments: blur, sharpen, greyscale, negate, colour, tint, gamma, posterize, bloom, flip, flop, rotate, square. |
+| `montage` | Joins several items into one video, optionally scored with a track in the same pass. |
 | `speak` | Reads a text document aloud, storing the narration as audio and linking it as a soundtrack. |
 
 ---
@@ -378,13 +379,24 @@ node index.js effect '{"key":"data/clip.mp4","effect":"speed","factor":2}'
 node index.js effect '{"key":"data/clip.mp4","effect":"reverse"}'
 node index.js effect '{"key":"data/clip.mp4","effect":"colour","saturation":2.2,"contrast":1.3}'
 
+# adjust a still, staying a still — so the result can be isolated, composed or joined
+node index.js adjust '{"key":"data/photo.jpg","adjust":"posterize","levels":5}'
+node index.js adjust '{"key":"data/photo.jpg","adjust":"tint","colour":"#3355ff"}'
+
 # join items, either explicitly or by following the edge graph
 node index.js montage '{"keys":["data/a.jpg","data/b.mp4","data/c.jpg"],"seconds":2}'
 node index.js montage '{"from":"data/a.jpg","count":5}'
 
-# montage is silent by design — score it with render
+# a series of images with a soundtrack, in one pass
+node index.js montage '{"keys":["data/a.jpg","data/b.jpg","data/c.jpg"],"seconds":3,"audio":"data/track.mp3"}'
+
+# or score an existing video
 node index.js render '{"visual":"data/montage-20260101120000.mp4","audio":"data/track.mp3"}'
 ```
+
+`adjust` differs from `effect` in what it produces: `effect` always yields video, turning a
+still into motion, while `adjust` keeps an image an image so it can be fed back into
+`isolate`, `compose`, `montage` or `render`.
 
 `montage` uses the concat **filter**, not the demuxer. The demuxer requires every input to
 share codec, resolution and frame rate, which would mean normalizing each source first;

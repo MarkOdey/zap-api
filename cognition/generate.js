@@ -17,7 +17,8 @@ const MAX_DOCS = Number(process.env.GENERATE_MAX_DOCS || 200);
 
 /** Video effects worth applying unattended. Trim and rotate need arguments to mean much. */
 const VIDEO_EFFECTS = ['speed', 'reverse', 'greyscale', 'colour', 'fade'];
-const STILL_EFFECTS = ['zoom', 'pan'];
+const STILL_EFFECTS = ['zoom', 'zoomout', 'pan', 'kenburns'];
+const ADJUSTMENTS = ['blur', 'greyscale', 'negate', 'colour', 'tint', 'gamma', 'posterize', 'bloom'];
 
 /** Pairs whose job failed, so a broken file is not retried every 30 seconds. */
 const failed = new Set();
@@ -121,16 +122,19 @@ async function strategies(db, col, { images, videos, audio, texts }) {
       why: 'still animated',
     });
     out.push({ action: 'isolate', params: { key: pick(images).key }, why: 'shape isolated' });
+    out.push({
+      action: 'adjust',
+      params: { key: pick(images).key, adjust: pick(ADJUSTMENTS) },
+      why: 'still adjusted',
+    });
   }
 
-  // 6. Several items joined.
+  // 6. Several items joined, scored if there is anything to score them with.
   const joinable = [...images, ...videos];
   if (joinable.length >= 3) {
-    out.push({
-      action: 'montage',
-      params: { keys: joinable.slice(0, 4).map(d => d.key), seconds: 2 },
-      why: 'montage',
-    });
+    const params = { keys: joinable.slice(0, 4).map(d => d.key), seconds: 2 };
+    if (audio.length) params.audio = pick(audio).key;
+    out.push({ action: 'montage', params, why: params.audio ? 'montage with a track' : 'montage' });
   }
 
   return out;

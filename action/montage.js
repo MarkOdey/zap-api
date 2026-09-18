@@ -27,16 +27,18 @@ const PRESET = process.env.RENDER_PRESET || 'veryfast';
  * to share codec, resolution and frame rate, which would mean normalizing each
  * source first. The filter scales and pads each input in one pass instead.
  *
- * Output is silent by design — add a track with `render`, which keeps each action
- * doing one thing.
+ * Silent unless `audio` names a track, in which case it is muxed in the same pass
+ * rather than requiring a second render — a series of images plus sound is one
+ * call. The video is cut to the shorter of the two.
  *
  * @param {object}   params
  * @param {string[]} [params.keys]    Explicit items, in order
  * @param {string}   [params.from]    Start key for an edge walk
  * @param {number}   [params.count]   How many items to gather when walking (default 5)
  * @param {number}   [params.seconds] Seconds per still (default 3)
+ * @param {string}   [params.audio]   Key of an audio document to lay under it
  */
-async function montage({ keys, from, count = 5, seconds = STILL_SECONDS } = {}) {
+async function montage({ keys, from, count = 5, seconds = STILL_SECONDS, audio } = {}) {
   const wanted = Math.min(MAX_ITEMS, Math.max(2, Number(count) || 5));
 
   const chosen = Array.isArray(keys) && keys.length
@@ -58,6 +60,15 @@ async function montage({ keys, from, count = 5, seconds = STILL_SECONDS } = {}) 
 
   if (docs.length < 2) throw new Error('montage: fewer than 2 usable items after filtering');
 
+  let track = null;
+  if (audio) {
+    track = await find(audio);
+    if (!track) throw new Error(`montage: no document for key ${audio}`);
+    if (!track.type?.includes('audio')) {
+      throw new Error(`montage: ${audio} is ${track.type || 'untyped'}, expected audio`);
+    }
+  }
+
   const dataDir = process.env.DATA_DIR || './data';
   const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
   const outPath = path.join(dataDir, `montage-${stamp}.mp4`);
@@ -77,16 +88,34 @@ async function montage({ keys, from, count = 5, seconds = STILL_SECONDS } = {}) 
   const inputs = docs.map((_, i) => `[v${i}]`).join('');
   const filter = `${chains.join(';')};${inputs}concat=n=${docs.length}:v=1:a=0[out]`;
 
+  if (track) args.push('-i', track.source);
+
+  args.push('-filter_complex', filter, '-map', '[out]');
+
+  if (track) {
+    // The visuals have a fixed length, so cut at whichever runs out first rather
+    // than leaving silence or a frozen tail.
+    const visualSeconds = docs.reduce(
+      (total, d) => total + (d.kind === 'image' ? seconds : (d.streams.duration ?? seconds)),
+      0,
+    );
+    const trackSeconds = await probeStreams(track.source).then(s => s.duration ?? visualSeconds);
+    args.push(
+      '-map', `${docs.length}:a:0`,
+      '-c:a', 'aac', '-b:a', '192k',
+      '-t', String(Math.min(visualSeconds, trackSeconds)),
+    );
+  } else {
+    args.push('-an');
+  }
+
   args.push(
-    '-filter_complex', filter,
-    '-map', '[out]',
-    '-an',
     '-c:v', 'libx264', '-preset', PRESET,
     '-movflags', '+faststart',
     outPath,
   );
 
-  console.log(`montage: ${docs.length} items → ${outPath}`);
+  console.log(`montage: ${docs.length} items${track ? ` + ${track.key}` : ''} → ${outPath}`);
   docs.forEach(({ doc, kind }) => console.log(`  ${kind.padEnd(5)} ${doc.key}`));
 
   const startedAt = Date.now();
@@ -100,7 +129,7 @@ async function montage({ keys, from, count = 5, seconds = STILL_SECONDS } = {}) 
     name: path.basename(outPath),
     type: 'video/mp4',
     generator: 'montage',
-    derivedFrom: docs.map(d => d.doc.key),
+    derivedFrom: [...docs.map(d => d.doc.key), ...(track ? [track.key] : [])],
   });
 
   for (const { doc } of docs) {

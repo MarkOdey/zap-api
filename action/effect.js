@@ -16,7 +16,7 @@ const STILL_SECONDS = Number(process.env.EFFECT_STILL_SECONDS || 6);
 /**
  * Effects that animate a still image into a clip. Everything else needs a video.
  */
-const MOTION = new Set(['zoom', 'pan']);
+const MOTION = new Set(['zoom', 'zoomout', 'pan', 'kenburns']);
 
 /**
  * Builds the filter chains for one effect.
@@ -68,6 +68,32 @@ const EFFECTS = {
     return {
       // zoompan works on a scaled-up copy, or the result shimmers badly.
       video: `scale=${MAX_DIM * 2}:-2,zoompan=z='min(zoom+${step},${end})':d=${frames}:s=${MAX_DIM}x${Math.round(MAX_DIM * 9 / 16 / 2) * 2}:fps=${fps}`,
+      audio: '',
+    }
+  },
+
+  /** Pull back rather than push in. */
+  zoomout: ({ seconds = STILL_SECONDS, fps = 25, from = 1.35 }) => {
+    const frames = Math.max(1, Math.round(Number(seconds) * Number(fps)))
+    const start = clamp(Number(from) || 1.35, 1.01, 3)
+    const step = ((start - 1) / frames).toFixed(8)
+    const h = Math.round(MAX_DIM * 9 / 16 / 2) * 2
+    return {
+      video: `scale=${MAX_DIM * 2}:-2,zoompan=z='max(zoom-${step},1.0)':d=${frames}:s=${MAX_DIM}x${h}:fps=${fps}`,
+      audio: '',
+    }
+  },
+
+  /** Push in while drifting — the classic documentary move. */
+  kenburns: ({ seconds = STILL_SECONDS, fps = 25, to = 1.3 }) => {
+    const frames = Math.max(1, Math.round(Number(seconds) * Number(fps)))
+    const end = clamp(Number(to) || 1.3, 1.01, 3)
+    const step = ((end - 1) / frames).toFixed(8)
+    const h = Math.round(MAX_DIM * 9 / 16 / 2) * 2
+    return {
+      video: `scale=${MAX_DIM * 2}:-2,zoompan=z='min(zoom+${step},${end})':` +
+        `x='(iw-iw/zoom)*on/${frames}':y='(ih-ih/zoom)*on/${frames}':` +
+        `d=${frames}:s=${MAX_DIM}x${h}:fps=${fps}`,
       audio: '',
     }
   },
