@@ -16,9 +16,22 @@ mountMedia(app);
 
 const server = http.createServer(app);
 
+/**
+ * Which origins may connect.
+ *
+ * Defaults to reflecting whatever asked, because the client is served from
+ * whichever address the device used — a phone loads http://192.168.1.10:5173 and
+ * was refused by a rule naming only localhost. This is a personal player on a home
+ * network, not a public service; set CORS_ORIGIN to a specific origin, or a
+ * comma-separated list, to narrow it.
+ */
+const corsOrigin = process.env.CORS_ORIGIN
+  ? (process.env.CORS_ORIGIN === "*" ? true : process.env.CORS_ORIGIN.split(",").map(o => o.trim()))
+  : true;
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: corsOrigin,
     methods: ["GET", "POST"],
   },
   // Still needed: uploads arrive as base64 over the socket. Playback no longer
