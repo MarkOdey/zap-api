@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
 
 import find from './find.js';
@@ -8,6 +9,7 @@ import connect from './connect.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 import { SOUNDTRACK } from '../relation/statement.js';
 import { probeDuration } from '../utils/ffprobe.js';
+import { renderTextFrame } from '../utils/textFrame.js';
 
 /** Long edge of the rendered video. Keeps output sane from 16MP stills. */
 const MAX_DIM = Number(process.env.RENDER_MAX_DIM || 1280);
@@ -40,8 +42,8 @@ async function render({ visual, audio, maxDim = MAX_DIM, background = 'black' } 
   if (!visualDoc) throw new Error(`render: no document for key ${visual}`);
 
   const kind = visualDoc.type?.split('/')[0];
-  if (kind !== 'image' && kind !== 'video') {
-    throw new Error(`render: ${visual} is ${visualDoc.type || 'untyped'}, expected image or video`);
+  if (kind !== 'image' && kind !== 'video' && kind !== 'text') {
+    throw new Error(`render: ${visual} is ${visualDoc.type || 'untyped'}, expected image, video or text`);
   }
 
   // Fall back to a soundtrack edge, so `connect ... --type=soundtrack` pairings render.
@@ -61,6 +63,23 @@ async function render({ visual, audio, maxDim = MAX_DIM, background = 'black' } 
 
   const dataDir = process.env.DATA_DIR || './data';
   const base = path.basename(visualDoc.source, path.extname(visualDoc.source));
+
+  // Text has no frames, so rasterise it to one and follow the still path. The
+  // frame goes to a temp directory, not DATA_DIR: explore scans that directory on
+  // a timer and would index the intermediate, leaving an orphan behind.
+  let framePath = null;
+  let visualSource = visualDoc.source;
+  if (kind === 'text') {
+    const body = await fs.readFile(visualDoc.source, 'utf8');
+    const frame = await renderTextFrame(body, {
+      width: maxDim,
+      height: Math.round((maxDim * 9) / 16 / 2) * 2,
+      background,
+    });
+    framePath = path.join(os.tmpdir(), `zap-frame-${process.pid}-${Date.now()}.png`);
+    await fs.writeFile(framePath, frame);
+    visualSource = framePath;
+  }
   const track = path.basename(audioDoc.source, path.extname(audioDoc.source));
   const outPath = path.join(dataDir, `${base}.with-${track}.mp4`);
 
@@ -68,7 +87,7 @@ async function render({ visual, audio, maxDim = MAX_DIM, background = 'black' } 
   // 6.93s from a clip, leaving a frozen frame over silence. Probe instead and cut
   // at an explicit duration — the shorter of the two streams.
   const audioSeconds = await probeDuration(audioDoc.source);
-  const visualSeconds = kind === 'video' ? await probeDuration(visualDoc.source) : Infinity;
+  const visualSeconds = kind === 'video' ? await probeDuration(visualSource) : Infinity;
   const duration = Math.min(audioSeconds, visualSeconds);
   if (!Number.isFinite(duration) || duration <= 0) {
     throw new Error(`render: could not determine a duration for ${audioDoc.key}`);
@@ -82,9 +101,9 @@ async function render({ visual, audio, maxDim = MAX_DIM, background = 'black' } 
     'format=yuv420p',
   ].join(',');
 
-  const args = kind === 'image'
+  const args = kind !== 'video'
     ? [
-      '-loop', '1', '-framerate', String(STILL_FPS), '-i', visualDoc.source,
+      '-loop', '1', '-framerate', String(STILL_FPS), '-i', visualSource,
       '-i', audioDoc.source,
       '-vf', filter,
       '-c:v', 'libx264', '-preset', PRESET, '-tune', 'stillimage',
@@ -93,7 +112,7 @@ async function render({ visual, audio, maxDim = MAX_DIM, background = 'black' } 
       '-movflags', '+faststart', '-y', outPath,
     ]
     : [
-      '-i', visualDoc.source,
+      '-i', visualSource,
       '-i', audioDoc.source,
       '-map', '0:v:0', '-map', '1:a:0',
       '-vf', filter,
@@ -105,7 +124,11 @@ async function render({ visual, audio, maxDim = MAX_DIM, background = 'black' } 
 
   console.log(`render: ${kind} ${visualDoc.key} + ${audioDoc.key} → ${outPath} (${duration.toFixed(2)}s)`);
   const startedAt = Date.now();
-  await runFfmpeg(args);
+  try {
+    await runFfmpeg(args);
+  } finally {
+    if (framePath) await fs.unlink(framePath).catch(() => {});
+  }
   const seconds = (Date.now() - startedAt) / 1000;
 
   const { size } = await fs.stat(outPath);

@@ -181,7 +181,7 @@ node index.js removeAll   # drop all documents from the data collection
 | `removeAll` | Deletes all documents from the MongoDB data collection. |
 | `isolate` | Segments an indexed image and saves each cut-out shape as a transparent PNG. |
 | `compose` | Mixes a shape isolated from one image into another, saving the composite. |
-| `render` | Builds a new video from a visual and an audio track (still + audio, or clip with its audio replaced). |
+| `render` | Builds a new video from a visual and an audio track — a still, a clip, or a text document rendered as a frame. |
 | `effect` | Applies an ffmpeg effect to a clip, or animates a still: speed, reverse, fade, colour, greyscale, rotate, zoom, pan. |
 | `montage` | Joins several library items into one video, from explicit keys or by walking the edge graph. |
 | `speak` | Reads a text document aloud, storing the narration as audio and linking it as a soundtrack. |
@@ -346,6 +346,10 @@ node index.js connect '{"from":"data/photo.jpg","to":"data/track.mp3","type":"so
 node index.js render  '{"visual":"data/photo.jpg"}'
 ```
 
+A text document is rasterised to a frame first, sized to fill it: short strings render
+very large, long ones wrap and step down. The frame is written to a temp directory rather
+than `DATA_DIR`, because `explore` scans that on a timer and would index the intermediate.
+
 Transparent cutouts are flattened onto `background` (default black) — video has no
 alpha channel. Output is capped at `RENDER_MAX_DIM` and padded to even dimensions, which
 `yuv420p` requires.
@@ -392,6 +396,9 @@ playback traverses, skipping `soundtrack` edges since audio has no frames.
 
 ```bash
 node index.js speak '{"key":"data/note.txt"}'
+
+# then turn the text and its narration into a video — the soundtrack edge is followed
+node index.js render '{"visual":"data/note.txt"}'
 ```
 
 Synthesis runs through transformers.js, so it needs no system dependency beyond the
