@@ -26,6 +26,11 @@ export const FIELDS = {
   sourceUrl:   { type: 'string', required: false, desc: 'The URL it was fetched from' },
   attribution: { type: 'string', required: false, desc: 'Who published it' },
   summarizedFrom: { type: 'string', required: false, desc: 'The text before it was condensed' },
+
+  // What an image was found to contain, by action/analyse.js.
+  labels:      { type: 'object', required: false, desc: 'Subjects found in the image, most prominent first' },
+  subjects:    { type: 'object', required: false, desc: 'Those subjects with coverage and confidence' },
+  analysedAt:  { type: 'object', required: false, desc: 'When it was last analysed' },
 };
 
 /**

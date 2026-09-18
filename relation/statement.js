@@ -5,6 +5,15 @@
  */
 export const SOUNDTRACK = 'soundtrack';
 
+/**
+ * Two documents found to contain the same thing.
+ *
+ * Kept out of the default export for the same reason as SOUNDTRACK: relate draws
+ * random types from that when it has nothing better, and this type means something
+ * specific — it should only ever be created deliberately.
+ */
+export const SUBJECT = 'subject';
+
 export default {
   FAMILY:         'family',
   LOCATION:       'location',

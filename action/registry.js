@@ -1,4 +1,5 @@
 import adjust from './adjust.js';
+import analyse from './analyse.js';
 import appreciate from './appreciate.js';
 import compose from './compose.js';
 import connect from './connect.js';
@@ -53,6 +54,7 @@ export const ACTIONS = {
   isolate:    { fn: isolate,    queueable: true,  subprocess: true, params: ['key', 'label', 'all'] },
   compose:    { fn: compose,    queueable: true,  subprocess: true, params: ['from', 'to', 'label', 'scale', 'x', 'y', 'opacity', 'blend'] },
   render:     { fn: render,     queueable: true,  params: ['visual', 'audio', 'maxDim', 'background'] },
+  analyse:    { fn: analyse,    queueable: true,  subprocess: true, params: ['key'] },
   adjust:     { fn: adjust,     queueable: true,  params: ['key', 'adjust', 'sigma', 'brightness', 'saturation', 'hue', 'colour', 'value', 'levels', 'degrees'] },
   effect:     { fn: effect,     queueable: true,  params: ['key', 'effect', 'factor', 'seconds', 'degrees', 'brightness', 'contrast', 'saturation', 'direction', 'to'] },
   montage:    { fn: montage,    queueable: true,  params: ['keys', 'from', 'count', 'seconds', 'audio', 'crossfade'] },

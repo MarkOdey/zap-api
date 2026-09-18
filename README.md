@@ -205,6 +205,7 @@ node index.js removeAll   # drop all documents from the data collection
 | `concat` | Concatenates two media files (requires external `mmcat` binary). |
 | `prune` | Repairs the library and enforces the generated-media budget. `dryRun` reports without deleting. |
 | `removeAll` | Deletes all documents from the MongoDB data collection. |
+| `analyse` | Records what an image contains, in words, without cutting anything from it. |
 | `isolate` | Segments an indexed image and saves each cut-out shape as a transparent PNG. |
 | `compose` | Mixes a shape isolated from one image into another, saving the composite. |
 | `render` | Builds a new video from a visual and an audio track — a still, a clip, or a text document rendered as a frame. |
@@ -662,3 +663,34 @@ runtimes at different ABIs cannot share a process — loading both fails with
 
 `TTS_ENGINE=mms` reverts, and MMS is still the route to other languages
 (`Xenova/mms-tts-fra`, `-deu`, `-spa`).
+
+---
+
+## Knowing what an image contains
+
+```bash
+node index.js analyse '{"key":"data/photo.jpg"}'
+# analyse: data/photo.jpg — person, road, bicycle, gravel
+```
+
+The segmentation model already identifies every region of an image; `isolate` computes
+all of it and keeps only the region it cuts out. `analyse` keeps the labels instead, so a
+photograph knows what it contains without anything being cut from it. Regions smaller
+than `ANALYSE_MIN_COVERAGE` are ignored, as are the model's unnamed `LABEL_nnn` classes —
+they are real regions, but they say nothing and must not become something documents are
+linked by.
+
+Each document gains `labels` and `subjects`, the latter carrying coverage and confidence.
+
+### Linking on what things contain
+
+`relate` prefers a shared subject over a random pair. Two photographs that both contain a
+bicycle are related in a way two arbitrary documents are not, and playback walks these
+edges — so the sequence follows a thread instead of wandering.
+
+The weight follows the weaker of the two associations: a photograph that is mostly
+bicycle is more about bicycles than one with a bicycle in the corner, and a link is only
+as strong as its weaker end.
+
+It still falls back to random pairing when nothing has been analysed, so a fresh library
+accumulates a graph regardless.

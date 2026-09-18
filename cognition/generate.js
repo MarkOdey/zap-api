@@ -108,7 +108,16 @@ async function strategies(db, col, { images, videos, audio, texts }) {
   const linked = await unrenderedPair(db, col);
   if (linked) out.push({ action: 'render', params: linked, why: 'linked soundtrack' });
 
-  // 3. Feed text that still carries its padding.
+  // 3. An image nothing has looked at yet. Cheap, and it is what gives the graph
+  //    something to link on.
+  for (const image of images) {
+    if (!image.labels) {
+      out.push({ action: 'analyse', params: { key: image.key }, why: 'image not yet analysed' });
+      break;
+    }
+  }
+
+  // 4. Feed text that still carries its padding.
   for (const text of texts) {
     if (!text.summarizedFrom) {
       out.push({ action: 'summarize', params: { key: text.key }, why: 'text not yet condensed' });
@@ -116,7 +125,7 @@ async function strategies(db, col, { images, videos, audio, texts }) {
     }
   }
 
-  // 4. Text with no narration yet — but only once it has been condensed. Reading a
+  // 5. Text with no narration yet — but only once it has been condensed. Reading a
   // raw feed item aloud means sounding out its URLs and vote counts.
   for (const text of texts) {
     if (text.origin && !text.summarizedFrom) continue;
@@ -127,7 +136,7 @@ async function strategies(db, col, { images, videos, audio, texts }) {
     }
   }
 
-  // 5. A still or a clip scored with a random track.
+  // 6. A still or a clip scored with a random track.
   if (audio.length && (images.length || videos.length)) {
     const visual = pick([...images, ...videos]);
     out.push({
@@ -137,7 +146,7 @@ async function strategies(db, col, { images, videos, audio, texts }) {
     });
   }
 
-  // 6. A clip put through an effect.
+  // 7. A clip put through an effect.
   if (videos.length) {
     out.push({
       action: 'effect',
@@ -146,7 +155,7 @@ async function strategies(db, col, { images, videos, audio, texts }) {
     });
   }
 
-  // 7. A still animated, or a shape cut out of it.
+  // 8. A still animated, or a shape cut out of it.
   if (images.length) {
     const image = pick(images);
     out.push({
@@ -162,7 +171,7 @@ async function strategies(db, col, { images, videos, audio, texts }) {
     });
   }
 
-  // 8. Several items joined, scored if there is anything to score them with.
+  // 9. Several items joined, scored if there is anything to score them with.
   const joinable = [...images, ...videos];
   if (joinable.length >= 3) {
     const params = { keys: joinable.slice(0, 4).map(d => d.key), seconds: 2 };
