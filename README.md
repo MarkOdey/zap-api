@@ -52,7 +52,7 @@ utils/
 | Server → Client | `queue:tasks` | `[task]` | Scheduler heartbeat, every 2s |
 | Client → Server | `queue:push` | `{action, params}` → ack `{ok, id}` | Enqueue a job |
 | Client → Server | `queue:cancel` | `{id}` | Cancel a job that has not started |
-| Client → Server | `list` | `{skip, limit, sort, order, type, search}` → ack `{items, total, …}` | A page of the library, metadata only |
+| Client → Server | `list` | `{skip, limit, sort, order, type, search}` → ack `{items, total, …}` | A page of the library, metadata only. Sort by `name`, `type`, `weight`, `key` or `date`. |
 | Client → Server | `playKey` | `{key}` | Force the next item; emit `reject` after to end the current one |
 | Server → Client | `run:queued` / `run:done` / `run:error` | — | Reply to a terminal `run` |
 
@@ -123,6 +123,7 @@ npm install
 | `OUTPUT_FORMAT` | `webp` | Encoding for generated images; `png` for lossless |
 | `OUTPUT_QUALITY` | `90` | WebP quality (alpha is always kept at 100) |
 | `QUEUE_HISTORY` | `50` | Finished jobs kept for the status view |
+| `QUEUE_INTERVAL_MS` | `5000` | How often an idle queue is checked; a backlog is not paced by this |
 | `GENERATE_ENABLED` | `true` | Unattended generation; `false` disables it |
 | `GENERATE_INTERVAL_MS` | `30000` | How often it looks for something to do |
 | `GENERATE_MAX_DOCS` | `200` | Ceiling on generated documents |
@@ -291,6 +292,10 @@ cognition.js        The scheduler; runs the drain task every 500ms
 
 A job moves `queued → running → done | failed`, or `queued → cancelled`. Jobs carry
 `{id, action, params, state, queuedAt, startedAt, finishedAt, error, result}`.
+
+`QUEUE_INTERVAL_MS` governs how often an **idle** queue is checked. The worker keeps
+running while jobs remain, so a backlog is not paced by it — taking one job per tick would
+insert that interval between every job.
 
 **Concurrency is 1 by design.** The vision actions are CPU-bound ONNX inference, and
 running two at once thrashes rather than parallelizes. `Cognition` reschedules a task only

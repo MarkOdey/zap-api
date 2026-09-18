@@ -2,17 +2,25 @@ import queue from './queue.js';
 import { COMMANDS } from '../action/registry.js';
 
 /**
- * Run at most one queued job per tick.
+ * Drain the queue.
  *
- * Concurrency is deliberately 1: the vision actions are CPU-bound ONNX inference,
- * and running two at once thrashes rather than parallelizes. Registered on
- * Cognition, which reschedules only after each run settles, so a long job cannot
- * be overlapped by the next tick.
+ * Runs jobs one at a time — concurrency is deliberately 1, because the vision
+ * actions are CPU-bound ONNX inference and running two at once thrashes rather
+ * than parallelizes.
+ *
+ * It keeps going while work remains rather than taking one job per tick, so the
+ * scheduler's interval only governs how often an *idle* queue is checked. Pacing a
+ * backlog by the tick would add that interval between every job.
  */
 export default async function drainOne() {
-  const job = queue.claim();
-  if (!job) return;
+  while (queue.length > 0) {
+    const job = queue.claim();
+    if (!job) return;
+    await run(job);
+  }
+}
 
+async function run(job) {
   const action = COMMANDS[job.action];
   if (!action) {
     queue.settle(job, { error: new Error(`unknown action: ${job.action}`) });

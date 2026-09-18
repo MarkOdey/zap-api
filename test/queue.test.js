@@ -121,11 +121,43 @@ describe('queue: worker', () => {
     assert.match(job.error, /unknown action/);
   });
 
-  it('runs one job per call, not the whole queue', async () => {
+  // The scheduler's tick governs how often an *idle* queue is checked. Taking one
+  // job per tick would put that interval between every job in a backlog.
+  it('drains the whole backlog in one call', async () => {
+    queue.push('not-a-real-action');
     queue.push('not-a-real-action');
     queue.push('not-a-real-action');
     await drainOne();
-    assert.equal(queue.length, 1, 'the second job should still be waiting');
+    assert.equal(queue.length, 0, 'nothing should be left waiting');
+  });
+
+  it('still runs jobs one at a time, never concurrently', async () => {
+    // Stub COMMANDS, not ACTIONS: COMMANDS snapshots each `fn` when the registry
+    // module loads, so replacing it on ACTIONS afterwards has no effect — and the
+    // real action would then run against a database that is not there.
+    const { COMMANDS } = await import('../action/registry.js');
+    const original = COMMANDS.find;
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    COMMANDS.find = async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise(r => setTimeout(r, 5));
+      inFlight--;
+      return null;
+    };
+
+    try {
+      queue.push('find', { key: 'a' });
+      queue.push('find', { key: 'b' });
+      queue.push('find', { key: 'c' });
+      await drainOne();
+      assert.equal(maxInFlight, 1, `expected strictly sequential, saw ${maxInFlight} at once`);
+      assert.equal(queue.length, 0);
+    } finally {
+      COMMANDS.find = original;
+    }
   });
 });
 

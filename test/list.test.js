@@ -55,6 +55,29 @@ describe('list (needs MONGO_URL)', { skip: NO_DB && 'MONGO_URL not set' }, () =>
     assert.equal(past.total, 30, 'total stays correct past the end');
   });
 
+  it('sorts by date, newest and oldest first', async () => {
+    const newest = await onlyTest({ limit: 5, sort: 'date', order: -1 });
+    const oldest = await onlyTest({ limit: 5, sort: 'date', order: 1 });
+    assert.equal(newest.sort, 'date', 'the requested name is echoed back, not the _id it maps to');
+    assert.notEqual(newest.items[0].key, oldest.items[0].key, 'the two orders should differ');
+
+    const times = newest.items.map(i => new Date(i.addedAt).getTime());
+    assert.deepEqual(times, [...times].sort((a, b) => b - a), 'newest first should be descending');
+  });
+
+  it('gives every item an addedAt, derived from the document id', async () => {
+    const page = await onlyTest({ limit: 5 });
+    for (const item of page.items) {
+      assert.ok(item.addedAt, `${item.key} should carry addedAt`);
+      assert.ok(!Number.isNaN(new Date(item.addedAt).getTime()), 'addedAt should parse as a date');
+    }
+  });
+
+  it('never leaks the mongo id, even though date sorting uses it', async () => {
+    const page = await onlyTest({ limit: 5, sort: 'date' });
+    for (const item of page.items) assert.equal(item._id, undefined);
+  });
+
   it('sorts by weight in both directions', async () => {
     const desc = await onlyTest({ limit: 5, sort: 'weight', order: -1 });
     const asc = await onlyTest({ limit: 5, sort: 'weight', order: 1 });

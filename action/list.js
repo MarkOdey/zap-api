@@ -3,8 +3,15 @@ import MongoConnexion from '../utils/MongoConnexion.js';
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 200;
 
-/** Fields a document may be ordered by. Anything else is rejected. */
-const SORTABLE = new Set(['name', 'weight', 'type', 'key']);
+/**
+ * Fields a document may be ordered by. Anything else is rejected.
+ *
+ * 'date' maps to _id: an ObjectId encodes its creation time, so documents can be
+ * ordered by when they entered the library without carrying a timestamp field or
+ * migrating what is already stored.
+ */
+const SORTABLE = new Set(['name', 'weight', 'type', 'key', 'date']);
+const SORT_FIELDS = { date: '_id' };
 
 /**
  * A page of the indexed library, as metadata only.
@@ -28,7 +35,8 @@ async function list({ skip = 0, limit = DEFAULT_LIMIT, sort = 'name', order = 1,
 
   const safeSkip = Math.max(0, Number(skip) || 0);
   const safeLimit = Math.min(MAX_LIMIT, Math.max(1, Number(limit) || DEFAULT_LIMIT));
-  const sortField = SORTABLE.has(sort) ? sort : 'name';
+  const requested = SORTABLE.has(sort) ? sort : 'name';
+  const sortField = SORT_FIELDS[requested] ?? requested;
   const sortOrder = Number(order) === -1 ? -1 : 1;
 
   const query = {};
@@ -38,8 +46,9 @@ async function list({ skip = 0, limit = DEFAULT_LIMIT, sort = 'name', order = 1,
   const [items, total] = await Promise.all([
     col
       .find(query, {
-        // Metadata only — never the file contents.
-        projection: { _id: 0, key: 1, name: 1, type: 1, weight: 1, generator: 1, derivedFrom: 1, label: 1 },
+        // Metadata only — never the file contents. _id is kept to derive addedAt
+        // and stripped before the page is returned.
+        projection: { _id: 1, key: 1, name: 1, type: 1, weight: 1, generator: 1, derivedFrom: 1, label: 1 },
       })
       .sort({ [sortField]: sortOrder })
       .skip(safeSkip)
@@ -48,7 +57,12 @@ async function list({ skip = 0, limit = DEFAULT_LIMIT, sort = 'name', order = 1,
     col.countDocuments(query),
   ]);
 
-  return { items, total, skip: safeSkip, limit: safeLimit, sort: sortField, order: sortOrder };
+  const page = items.map(({ _id, ...doc }) => ({
+    ...doc,
+    addedAt: _id?.getTimestamp?.().toISOString() ?? null,
+  }));
+
+  return { items: page, total, skip: safeSkip, limit: safeLimit, sort: requested, order: sortOrder };
 }
 
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

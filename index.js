@@ -43,7 +43,9 @@ if (cliAction) {
 const cognition = new Cognition();
 // Drain the job queue often; Cognition reschedules only after a run settles, so a
 // 20s inference job cannot be overlapped by the next tick.
-cognition.register('queue',   drainOne,    500);
+// Idle poll only: the worker keeps going while jobs remain, so a backlog is not
+// paced by this interval — see utils/worker.js.
+cognition.register('queue',   drainOne,    Number(process.env.QUEUE_INTERVAL_MS || 5000));
 cognition.register('explore', exploreTask, 60 * 1000);
 cognition.register('relate',  relateTask,  30 * 1000);
 cognition.register('prune',   pruneTask,  120 * 1000);
