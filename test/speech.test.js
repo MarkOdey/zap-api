@@ -54,7 +54,16 @@ describe('speech: chunkText', () => {
 // These reject before a model loads or a database is touched.
 describe('speak: validation', () => {
   it('requires a key', async () => {
-    await assert.rejects(() => speak({}), /key is required/);
-    await assert.rejects(() => speak(), /key is required/);
+    await assert.rejects(() => speak({}), /key must be a text document/);
+    await assert.rejects(() => speak(), /key must be a text document/);
+  });
+
+  // A bare `--key` flag parses to boolean true, which used to pass a truthiness
+  // check and fail confusingly deeper in, inside find.
+  it('rejects a key that is not a string', async () => {
+    for (const bad of [true, 42, {}, '', '   ']) {
+      await assert.rejects(() => speak({ key: bad }), /key must be a text document/,
+        `${JSON.stringify(bad)} should be rejected by speak itself`);
+    }
   });
 });
