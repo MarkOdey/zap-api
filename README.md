@@ -133,6 +133,9 @@ npm install
 | `INGEST_MAX_CHARS` | `600` | Cap on the text kept per item |
 | `FEED_MIN_INTERVAL_MS` | `900000` | Shortest gap between feed polls |
 | `FEED_USER_AGENT` | `zap/1.0 …` | Sent when fetching feeds |
+| `SUMMARY_MODEL` | `Xenova/distilbart-cnn-6-6` | Summarisation model |
+| `SUMMARY_MAX_TOKENS` | `44` | Roughly a sentence or two |
+| `SUMMARY_MIN_INPUT` | `120` | Below this, nothing is condensed |
 | `EDGE_PRUNE_THRESHOLD` | `0.1` | Weight below which an associative edge is dropped |
 | `GENERATE_ENABLED` | `true` | Unattended generation; `false` disables it |
 | `GENERATE_INTERVAL_MS` | `30000` | How often it looks for something to do |
@@ -186,6 +189,7 @@ node index.js removeAll   # drop all documents from the data collection
 | `explore` | Scans `DATA_DIR`, validates against the document model, upserts into MongoDB. Run this first to populate the library. |
 | `subscribe` | Add, remove or list syndication feeds. |
 | `ingest` | Pull items from subscribed feeds into the library as text documents. |
+| `summarize` | Condense a text document with a small language model, keeping the original. |
 | `play` | Selects a weighted random media document and emits it to the client. |
 | `find` | Queries MongoDB for a document by key. |
 | `list` | Returns a page of the library as metadata only — no file contents. |
@@ -598,3 +602,22 @@ thing. The parser reads the image URL and `ingest` deliberately ignores it.
 
 Fetched documents are marked `origin`, which makes them machine-owned: `prune` may evict
 them under the data budget, the same as generated media. Uploads remain untouchable.
+
+---
+
+## Summarising feed text
+
+```bash
+node index.js summarize '{"key":"data/rss-a8ee96a9d046.txt"}'
+```
+
+Feed items arrive padded, and the text player renders whatever it is given very large, so
+the padding crowds out the headline. A Hacker News item carrying
+`Article URL … Comments URL … Points: 165 # Comments: 46` condenses to just its headline.
+
+The original is kept on the document as `summarizedFrom`, so nothing is lost.
+
+`generate` offers this for any feed text not yet condensed, and it runs out of process
+like the other inference. The model is roughly 300MB against the segmentation model's
+4.3GB, and fp32 for the same reason: q8 halves the memory and produces garbage —
+*"Korea raises data breach fines to 10% of revenue to 10%. Korea raisesData breach fines."*

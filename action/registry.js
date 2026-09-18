@@ -15,6 +15,7 @@ import effect from './effect.js';
 import montage from './montage.js';
 import render from './render.js';
 import speak from './speak.js';
+import summarize from './summarize.js';
 import subscribe from './subscribe.js';
 import play from './play.js';
 import prune from './prune.js';
@@ -56,6 +57,7 @@ export const ACTIONS = {
   effect:     { fn: effect,     queueable: true,  params: ['key', 'effect', 'factor', 'seconds', 'degrees', 'brightness', 'contrast', 'saturation', 'direction', 'to'] },
   montage:    { fn: montage,    queueable: true,  params: ['keys', 'from', 'count', 'seconds', 'audio'] },
   speak:      { fn: speak,      queueable: true,  subprocess: true, params: ['key', 'narrate'] },
+  summarize:  { fn: summarize,  queueable: true,  subprocess: true, params: ['key'] },
   upload:     { fn: upload,     queueable: true,  params: ['meta', 'data'] },
   normalize:  { fn: normalize,  queueable: true,  params: ['source'] },
   crop:       { fn: crop,       queueable: true,  params: ['key', 'start', 'duration'] },

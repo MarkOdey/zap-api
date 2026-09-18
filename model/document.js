@@ -25,6 +25,7 @@ export const FIELDS = {
   origin:      { type: 'string', required: false, desc: 'Where it came from, e.g. "rss"' },
   sourceUrl:   { type: 'string', required: false, desc: 'The URL it was fetched from' },
   attribution: { type: 'string', required: false, desc: 'Who published it' },
+  summarizedFrom: { type: 'string', required: false, desc: 'The text before it was condensed' },
 };
 
 /**
