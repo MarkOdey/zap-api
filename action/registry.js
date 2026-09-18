@@ -5,6 +5,7 @@ import crop from './crop.js';
 import disconnect from './disconnect.js';
 import explore from './explore.js';
 import find from './find.js';
+import help from './help.js';
 import isolate from './isolate.js';
 import list from './list.js';
 import normalize from './normalize.js';
@@ -48,6 +49,11 @@ export const ACTIONS = {
   crop:       { fn: crop,       queueable: true,  params: ['key', 'start', 'duration'] },
 
   find:       { fn: find,       queueable: false, params: ['key'] },
+  // Called through a lambda, not referenced directly: help.js imports this module
+  // to list the actions, so evaluating `help` here while that import is still in
+  // flight throws "Cannot access 'help' before initialization". The lambda defers
+  // the read until the action is actually invoked.
+  help:       { fn: (...args) => help(...args), queueable: false, params: ['action'] },
   list:       { fn: list,       queueable: false, params: ['skip', 'limit', 'sort', 'order', 'type', 'search'] },
   record:     { fn: record,     queueable: false, params: ['key', 'source', 'name', 'type', 'weight'] },
   update:     { fn: update,     queueable: false, params: ['key', 'weight'] },

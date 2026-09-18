@@ -122,6 +122,10 @@ npm install
 | `OUTPUT_FORMAT` | `webp` | Encoding for generated images; `png` for lossless |
 | `OUTPUT_QUALITY` | `90` | WebP quality (alpha is always kept at 100) |
 | `QUEUE_HISTORY` | `50` | Finished jobs kept for the status view |
+| `WEAVE_ENABLED` | `true` | Scheduled rendering of soundtrack pairings; `false` disables it |
+| `WEAVE_MODE` | `linked` | `linked` renders existing soundtrack edges; `random` also invents pairings |
+| `WEAVE_INTERVAL_MS` | `300000` | How often the weave task looks for work |
+| `WEAVE_MAX_RENDERS` | `50` | Ceiling on rendered videos, so it cannot fill the disk |
 
 ---
 
@@ -172,6 +176,7 @@ node index.js removeAll   # drop all documents from the data collection
 | `play` | Selects a weighted random media document and emits it to the client. |
 | `find` | Queries MongoDB for a document by key. |
 | `list` | Returns a page of the library as metadata only — no file contents. |
+| `help` | Lists every action and its arguments; `help <action>` details one. |
 | `update` | Updates the weight field of a document. |
 | `record` | Upserts a document (used internally by the upload pipeline). |
 | `upload` | Accepts a base64-encoded file over the socket and saves it to `DATA_DIR`. |
@@ -412,3 +417,27 @@ for a single long sentence) and the pieces joined with a short gap.
 As well as the usual `derivative` edge, `speak` links a `soundtrack` edge from the text to
 its narration, so the text is read aloud when it comes up in playback. Pass
 `narrate: false` to skip that and leave the audio standalone.
+
+---
+
+## Scheduled rendering
+
+The `weave` cognition task turns soundtrack pairings into videos without being asked.
+
+By default it runs in `linked` mode: it only renders pairs that already have a
+`soundtrack` edge, so it materialises a decision someone made rather than inventing
+content. That makes `speak` self-completing — narrate a text document and a video of it
+appears on its own. `WEAVE_MODE=random` also pairs a visual with an arbitrary track.
+
+Safeguards, since it competes for the single queue slot and writes files:
+
+- skips entirely while a `render` job is queued or running, so it cannot starve work
+  triggered by hand
+- refuses to render a pair that already has a rendered document
+- never renders its own output — a render produces video, which is itself a renderable
+  visual, so without this it would loop
+- stops at `WEAVE_MAX_RENDERS` documents
+- remembers pairs whose render failed and does not retry them until restart, rather than
+  spinning the queue on a broken file
+
+Run `help` in the terminal to see every action and its arguments.
