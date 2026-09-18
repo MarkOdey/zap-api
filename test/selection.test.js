@@ -1,100 +1,120 @@
-import { describe, it, before, after } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { selectionPipeline, fallbackPipeline, HALF_LIFE_DAYS, RECENCY_FLOOR } from '../utils/selection.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 
-// Needs a database: these pin query behaviour, which cannot be faked.
-//   MONGO_URL=mongodb://localhost:27021/zap-test npm test
-const NO_DB = !process.env.MONGO_URL;
-const COLLECTION = 'selection_test_data';
-const ITERATIONS = 200;
+const json = (v) => JSON.stringify(v);
 
-// One close for the whole file: the shared client keeps the event loop alive,
-// and closing it inside a describe strands any later one that reconnects.
-after(() => (NO_DB ? undefined : MongoConnexion.close()));
-
-describe('play: weighted selection spread (needs MONGO_URL)', { skip: NO_DB && 'MONGO_URL not set' }, () => {
-  let col;
-
-  before(async () => {
-    const db = await MongoConnexion.db();
-    col = db.collection(COLLECTION);
-    await col.deleteMany({});
-
-    // Insert order defeats the old findOne(): the highest weight comes first, so
-    // almost nothing after it is a left-to-right maximum. Weights are spread
-    // across the whole range, as a real library's are — clustering them makes
-    // the top document win every draw above the cluster and skews the test.
-    const docs = [{ key: 'k0', weight: 0.97 }];
-    for (let i = 1; i < 40; i++) docs.push({ key: `k${i}`, weight: 0.02 + (i / 40) * 0.93 });
-    await col.insertMany(docs);
+describe('selection: pipeline shape', () => {
+  it('filters on weight, draws one, and cleans up after itself', () => {
+    const p = selectionPipeline({ threshold: 0.4 });
+    assert.deepEqual(p[0], { $match: { weight: { $gt: 0.4 } } });
+    assert.ok(p.some(stage => stage.$limit === 1));
+    assert.ok(p.some(stage => Array.isArray(stage.$unset) && stage.$unset.includes('_score')),
+      'temporary fields must not reach the caller');
   });
 
-  after(() => col.drop().catch(() => {}));
+  it('sorts by the draw, descending — the largest key wins', () => {
+    const sort = selectionPipeline().find(s => s.$sort);
+    assert.deepEqual(sort.$sort, { _draw: -1 });
+  });
 
-  /** The patched selection from action/play.js. */
-  async function pick() {
-    const [hit] = await col.aggregate([
-      { $match: { weight: { $gt: Math.random() } } },
-      { $sample: { size: 1 } },
-    ]).toArray();
-    if (hit) return hit;
-    const [any] = await col.aggregate([{ $sample: { size: 1 } }]).toArray();
-    return any;
-  }
+  it('raises a random number to 1/score, not score itself', () => {
+    // Efraimidis-Spirakis: random^(1/score). Getting this inverted would favour
+    // the least liked and least recent documents.
+    const draw = json(selectionPipeline().find(s => s.$addFields?._draw));
+    assert.ok(draw.includes('"$rand"'));
+    assert.ok(draw.includes('"$divide":[1,"$_score"]'.replace(/\s/g, '')) || draw.includes('$divide'));
+    const stage = selectionPipeline().find(s => s.$addFields?._draw);
+    assert.deepEqual(stage.$addFields._draw.$pow[1], { $divide: [1, '$_score'] });
+  });
 
-  /** The original, for contrast — documents the bug this test guards. */
-  const pickOld = async () =>
-    (await col.findOne({ weight: { $gt: Math.random() } })) ?? (await col.findOne({}));
+  it('drops the weight threshold in the fallback', () => {
+    assert.deepEqual(fallbackPipeline()[0], { $match: { weight: { $gt: -1 } } });
+  });
 
-  it('reaches most of the collection', async () => {
+  it('uses a fresh threshold each call, so the draw is not fixed', () => {
     const seen = new Set();
-    for (let i = 0; i < ITERATIONS; i++) seen.add((await pick()).key);
-    assert.ok(seen.size > 25, `expected wide coverage of 40 docs, saw ${seen.size}`);
-  });
-
-  it('does not concentrate on a handful of documents', async () => {
-    const counts = new Map();
-    for (let i = 0; i < ITERATIONS; i++) {
-      const k = (await pick()).key;
-      counts.set(k, (counts.get(k) ?? 0) + 1);
-    }
-    const top3 = [...counts.values()].sort((a, b) => b - a).slice(0, 3).reduce((a, b) => a + b, 0);
-    assert.ok(top3 / ITERATIONS < 0.35, `top 3 documents took ${Math.round((top3 / ITERATIONS) * 100)}% of picks`);
-  });
-
-  it('always returns a document, even when the threshold beats every weight', async () => {
-    for (let i = 0; i < 20; i++) assert.ok((await pick())?.key, 'selection must never return null');
-  });
-
-  // Regression: findOne() has no sort, so it returned the first match in natural
-  // order. Only left-to-right maxima were reachable — 4 of 47 in the real library.
-  it('the old findOne approach demonstrably could not', async () => {
-    const seen = new Set();
-    for (let i = 0; i < ITERATIONS; i++) seen.add((await pickOld()).key);
-    assert.ok(seen.size < 10,
-      `the old query should be badly concentrated (that was the bug), saw ${seen.size}`);
+    for (let i = 0; i < 20; i++) seen.add(selectionPipeline()[0].$match.weight.$gt);
+    assert.ok(seen.size > 1, 'threshold should vary between calls');
   });
 });
 
-describe('explore: weights survive a rescan (needs MONGO_URL)', { skip: NO_DB && 'MONGO_URL not set' }, () => {
-  it('sets weight on insert only, so likes are not wiped', async () => {
+describe('selection: recency term', () => {
+  const scoreStage = (opts) => selectionPipeline(opts).find(s => s.$addFields?._score);
+
+  it('multiplies weight by a decay based on document age', () => {
+    const body = json(scoreStage());
+    assert.ok(body.includes('$weight'), 'weight must still count');
+    assert.ok(body.includes('$toDate'), 'age comes from the document id');
+    assert.ok(body.includes('$pow'), 'decay is exponential');
+  });
+
+  it('floors the decay so nothing becomes unreachable', () => {
+    // Without a floor, a one-day half-life makes a month-old item 2^-30 as
+    // likely as a fresh one — never.
+    const body = json(scoreStage());
+    assert.ok(body.includes('$max'), 'the decay must be floored');
+    assert.ok(RECENCY_FLOOR > 0 && RECENCY_FLOOR < 1, `floor should be a fraction, got ${RECENCY_FLOOR}`);
+  });
+
+  it('drops the decay entirely at strength 0', () => {
+    const body = json(scoreStage({ strength: 0 }));
+    assert.ok(!body.includes('$toDate'), 'age should not be consulted when disabled');
+  });
+
+  it('never divides by zero, however small the score', () => {
+    const body = json(scoreStage());
+    assert.ok(/1e-6|0\.000001/.test(body), 'score must be floored above zero');
+  });
+
+  it('has a sane default half-life', () => {
+    assert.ok(HALF_LIFE_DAYS > 0 && HALF_LIFE_DAYS <= 30);
+  });
+
+  it('tolerates a zero half-life instead of dividing by it', () => {
+    assert.doesNotThrow(() => selectionPipeline({ halfLifeDays: 0 }));
+  });
+});
+
+const NO_DB = !process.env.MONGO_URL;
+
+describe('selection: behaviour against a database', { skip: NO_DB && 'MONGO_URL not set' }, () => {
+  after(() => MongoConnexion.close());
+
+  it('favours recent documents while leaving old ones reachable', async () => {
     const db = await MongoConnexion.db();
-    const col = db.collection('explore_weight_test');
+    const col = db.collection('seltest');
     await col.deleteMany({});
 
-    const doc = { key: 'w1', source: 'w1', name: 'w1.jpg', type: 'image/jpeg' };
+    // Same weight throughout, so any difference is recency alone.
+    const { ObjectId } = await import('mongodb');
+    const day = 86_400_000;
+    const docs = [];
+    for (let i = 0; i < 20; i++) {
+      docs.push({
+        _id: ObjectId.createFromTime(Math.floor((Date.now() - i * day) / 1000)),
+        key: `seltest/${i}`,
+        weight: 0.9,
+        ageDays: i,
+      });
+    }
+    await col.insertMany(docs);
 
-    // What explore.js now does.
-    const upsert = async (weight) => {
-      await col.updateOne({ key: doc.key }, { $set: doc, $setOnInsert: { weight } }, { upsert: true });
-    };
+    const counts = new Map();
+    for (let i = 0; i < 300; i++) {
+      const [hit] = await col.aggregate(selectionPipeline({ threshold: 0 })).toArray();
+      counts.set(hit.ageDays, (counts.get(hit.ageDays) ?? 0) + 1);
+    }
 
-    await upsert(0.2);
-    await col.updateOne({ key: 'w1' }, { $set: { weight: 0.99 } }); // a like
-    await upsert(0.7);                                             // a later rescan
+    const fresh = [...counts].filter(([age]) => age <= 2).reduce((n, [, c]) => n + c, 0);
+    const stale = [...counts].filter(([age]) => age >= 10).reduce((n, [, c]) => n + c, 0);
 
-    assert.equal((await col.findOne({ key: 'w1' })).weight, 0.99, 'the like must survive');
+    assert.ok(fresh > stale * 1.5, `recent should win clearly: ${fresh} vs ${stale}`);
+    assert.ok(stale > 0, 'old documents must still be reachable, not silenced');
+    assert.ok(counts.size >= 10, `coverage should stay broad, saw ${counts.size} of 20`);
+
     await col.drop().catch(() => {});
   });
 });

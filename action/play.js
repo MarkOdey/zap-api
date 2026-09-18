@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import { mediaUrl } from '../utils/mediaRoute.js';
 import { SOUNDTRACK } from '../relation/statement.js';
+import { selectionPipeline, fallbackPipeline, traversalPipeline, TRAVERSAL_PROBABILITY } from '../utils/selection.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 import update from './update.js';
 
@@ -27,40 +28,53 @@ async function play(session) {
     }
   }
 
+  // Follow the graph most of the time, but not always.
+  //
+  // relate has been adding edges since the library began, so older documents have
+  // accumulated far more of them and new ones are rarely among a candidate set.
+  // Weighting the draw within a set cannot fix that — measured, traversal alone
+  // left the newest quarter of the library at a twelfth of plays. Skipping
+  // traversal some of the time lets the recency-weighted draw reach everything.
+  const followGraph = Math.random() < TRAVERSAL_PROBABILITY;
+
   // Try edge traversal from the previous item
-  if (!data && session.currentKey) {
+  if (!data && followGraph && session.currentKey) {
     // Soundtrack edges pair a document with audio; they are not a route to the
     // next item, so they must not be traversed.
     const edges = await edgeCol
       .find({ from: session.currentKey, type: { $ne: SOUNDTRACK } })
       .toArray();
+
     if (edges.length > 0) {
-      const edge = edges[Math.floor(Math.random() * edges.length)];
-      const candidate = await col.findOne({ key: edge.to });
+      // Draw among the edge targets by weight and recency rather than picking an
+      // edge uniformly. Nearly every document has outgoing edges, so this is the
+      // path most plays take — a uniform pick here ignored both.
+      const [candidate] = await col
+        .aggregate(traversalPipeline(edges.map(e => e.to)))
+        .toArray();
+
       if (candidate) {
         data = candidate;
-        precedingEdge = edge;
-        console.log("play: traversing edge", edge.key);
+        precedingEdge = edges.find(e => e.to === candidate.key) ?? null;
+        console.log("play: traversing edge", precedingEdge?.key ?? candidate.key);
       }
     }
   }
 
-  // Fallback: weighted random selection.
+  // Fallback: a draw weighted by how liked and how recent each document is.
   //
-  // $sample is load-bearing. findOne() has no sort, so it returns the *first*
-  // match in natural order — meaning a document was only ever reachable if its
-  // weight exceeded every weight before it in the collection. That left 4 of 47
-  // documents reachable here, and the rest unplayable.
+  // The pipeline matters. findOne() has no sort, so it returned the *first* match
+  // in natural order — a document was only reachable if its weight exceeded every
+  // weight before it, leaving 4 of 47 playable. $sample fixed reachability but is
+  // uniform, so weight only decided whether a document qualified, never how often
+  // it came up. See utils/selection.js.
   if (!data) {
-    const [hit] = await col.aggregate([
-      { $match: { weight: { $gt: Math.random() } } },
-      { $sample: { size: 1 } },
-    ]).toArray();
+    const [hit] = await col.aggregate(selectionPipeline()).toArray();
     data = hit;
 
-    // Nothing outscored the threshold — take any document, still at random.
+    // Nothing cleared the threshold — draw again with it removed.
     if (!data) {
-      const [any] = await col.aggregate([{ $sample: { size: 1 } }]).toArray();
+      const [any] = await col.aggregate(fallbackPipeline()).toArray();
       data = any;
     }
   }
