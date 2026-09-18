@@ -9,8 +9,15 @@ import { fetchFeed } from '../utils/feed.js';
 /** Items taken from each feed per poll, newest first. */
 const PER_FEED = Number(process.env.INGEST_PER_FEED || 5);
 
-/** Cap on what reaches the text player, which renders it large. */
-const MAX_CHARS = Number(process.env.INGEST_MAX_CHARS || 600);
+/**
+ * Cap on the text kept per item.
+ *
+ * Sized for the summariser rather than the player: distilbart takes about 1024
+ * tokens, roughly 4,000 characters, and truncates beyond that. Feeds that publish
+ * only a headline are unaffected — most news feeds give 150 to 200 characters —
+ * but one carrying a full article now keeps enough of it to summarise well.
+ */
+const MAX_CHARS = Number(process.env.INGEST_MAX_CHARS || 4000);
 
 /**
  * Pull items from subscribed feeds into the library as text documents.

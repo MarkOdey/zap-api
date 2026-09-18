@@ -6,6 +6,7 @@ import find from './find.js';
 import record from './record.js';
 import connect from './connect.js';
 import { synthesize } from '../utils/speech.js';
+import summarize from './summarize.js';
 import { SOUNDTRACK } from '../relation/statement.js';
 
 /** Guard against handing a whole book to the synthesiser. */
@@ -34,6 +35,15 @@ async function speak({ key, narrate = true } = {}) {
   if (!doc) throw new Error(`speak: no document for key ${key}`);
   if (!doc.type?.includes('text')) {
     throw new Error(`speak: ${key} is ${doc.type || 'untyped'}, expected text`);
+  }
+
+  // Fetched text is condensed first. A feed item read verbatim carries addresses,
+  // ids and vote counts, and the model sounds them out character by character —
+  // that halting delivery is what makes unsummarised speech sound wrong. The
+  // summary is written back to the file, so this reads the condensed version.
+  if (doc.origin && !doc.summarizedFrom) {
+    console.log('speak: condensing', doc.key, 'first');
+    await summarize({ key: doc.key });
   }
 
   let text = await fs.readFile(doc.source, 'utf8');

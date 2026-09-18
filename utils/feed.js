@@ -69,7 +69,11 @@ function fromRss(item) {
     // guid identifies an item across fetches; the link is the usual fallback.
     id: text(item.guid) || text(item.link) || title,
     title,
-    summary: strip(text(item.description) || text(item['content:encoded'])),
+    // Prefer whichever carries the most text. Many feeds publish a short
+    // description alongside a full content:encoded — Mozilla's blog gives 534
+    // characters in one and 6,915 in the other — and more input makes for a
+    // better summary. Taking description first threw the article away.
+    summary: richest(item.description, item['content:encoded'], item['content:encoded']?.['#text']),
     link: text(item.link),
     published: text(item.pubDate) || text(item['dc:date']) || null,
     // Only media the feed explicitly offers for syndication.
@@ -87,7 +91,7 @@ function fromAtom(entry) {
   return {
     id: text(entry.id) || alternate?.['@href'] || title,
     title,
-    summary: strip(text(entry.summary) || text(entry.content)),
+    summary: richest(entry.content, entry.summary),
     link: alternate?.['@href'] ?? text(entry.link),
     published: text(entry.published) || text(entry.updated) || null,
     image: links.find(l => String(l?.['@type'] ?? '').startsWith('image/'))?.['@href'] ?? null,
@@ -110,6 +114,16 @@ function mediaUrl(item) {
   }
 
   return null;
+}
+
+/** The longest of several possible content fields, once markup is gone. */
+function richest(...candidates) {
+  let best = '';
+  for (const c of candidates) {
+    const value = strip(text(c));
+    if (value.length > best.length) best = value;
+  }
+  return best;
 }
 
 const asArray = (v) => (v === undefined || v === null ? [] : Array.isArray(v) ? v : [v]);

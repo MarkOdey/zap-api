@@ -1,8 +1,58 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { chunkText, CHUNK_CHARS } from '../utils/speech.js';
+import { chunkText, normaliseForSpeech, CHUNK_CHARS } from '../utils/speech.js';
 import speak from '../action/speak.js';
+
+// A speech model reads characters. Round-tripped through recognition, an
+// unnormalised feed item came back as "article Earl Hapsil, Corey's uning daily
+// calm museness" — the arrhythmic delivery was it sounding out character soup.
+describe('speech: normaliseForSpeech', () => {
+  it('removes addresses', () => {
+    assert.equal(normaliseForSpeech('See https://example.com/a/b?c=1 now.'), 'See now.');
+    assert.equal(normaliseForSpeech('Visit www.example.com today'), 'Visit today');
+    assert.equal(normaliseForSpeech('Mail a@b.com please'), 'Mail please');
+  });
+
+  it('removes bare domains, which are read letter by letter', () => {
+    assert.ok(!normaliseForSpeech('Read arxiv.org/abs/2609 for more').includes('arxiv'));
+  });
+
+  it('removes syndication boilerplate', () => {
+    const out = normaliseForSpeech('Headline. Article URL: https://x.com/y Comments URL: https://n.com/z Points: 165 # Comments: 46');
+    assert.equal(out, 'Headline.');
+  });
+
+  it('says symbols that have a spoken form', () => {
+    assert.match(normaliseForSpeech('up 10% today'), /10 percent/);
+    assert.match(normaliseForSpeech('this & that'), /this and that/);
+    assert.match(normaliseForSpeech('Ruby vs. Python'), /versus/);
+  });
+
+  it('drops marks that have no spoken form', () => {
+    const out = normaliseForSpeech('a [b] {c} <d> |e| ~f~ ^g^');
+    for (const ch of '[]{}<>|~^') assert.ok(!out.includes(ch), `${ch} should be gone`);
+  });
+
+  it('leaves ordinary prose alone but for spacing', () => {
+    assert.equal(normaliseForSpeech('A normal sentence, with punctuation.'),
+      'A normal sentence, with punctuation.');
+  });
+
+  it('does not leave a space before punctuation after removing something', () => {
+    assert.equal(normaliseForSpeech('Read https://x.com/y.'), 'Read.');
+  });
+
+  it('copes with empty and missing input', () => {
+    assert.equal(normaliseForSpeech(''), '');
+    assert.equal(normaliseForSpeech(null), '');
+    assert.equal(normaliseForSpeech(undefined), '');
+  });
+
+  it('leaves nothing to say when an item is only a link', () => {
+    assert.equal(normaliseForSpeech('https://example.com/only'), '');
+  });
+});
 
 describe('speech: chunkText', () => {
   it('returns nothing for empty input', () => {

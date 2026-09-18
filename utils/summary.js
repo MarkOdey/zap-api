@@ -12,7 +12,7 @@ import { getPipeline } from './models.js';
 export const SUMMARY_MODEL = process.env.SUMMARY_MODEL || 'Xenova/distilbart-cnn-6-6';
 
 /** Roughly a sentence or two — this is shown very large by the text player. */
-export const MAX_TOKENS = Number(process.env.SUMMARY_MAX_TOKENS || 44);
+export const MAX_TOKENS = Number(process.env.SUMMARY_MAX_TOKENS || 64);
 export const MIN_LENGTH = Number(process.env.SUMMARY_MIN_LENGTH || 8);
 
 /** Below this there is nothing to condense. */
@@ -33,5 +33,29 @@ export async function summarise(text) {
 
   // A summary longer than its input, or empty, is not worth keeping.
   if (!summary || summary.length >= clean.length) return null;
-  return summary;
+
+  return endOnSentence(summary);
+}
+
+/**
+ * Drop a trailing partial sentence.
+ *
+ * Generation stops at a token budget, not at a full stop, so a summary routinely
+ * ends mid-phrase — "…to offer businesses and organizations a ready". Cutting back
+ * to the last complete sentence reads better than the extra half-clause, provided
+ * enough is left to be worth showing.
+ */
+export function endOnSentence(text) {
+  const trimmed = String(text).trim();
+  if (/[.!?]["')\]]?$/.test(trimmed)) return trimmed;
+
+  const lastStop = Math.max(
+    trimmed.lastIndexOf('. '), trimmed.lastIndexOf('! '), trimmed.lastIndexOf('? '),
+  );
+
+  // Only cut if a useful amount survives; otherwise a one-sentence summary that
+  // happens to be unterminated would be thrown away entirely.
+  if (lastStop > trimmed.length * 0.4) return trimmed.slice(0, lastStop + 1);
+
+  return trimmed;
 }

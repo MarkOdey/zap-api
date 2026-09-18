@@ -130,7 +130,7 @@ npm install
 | `TRAVERSAL_PROBABILITY` | `0.6` | How often playback follows an edge rather than drawing from the whole library |
 | `DATA_BUDGET_MB` | `1024` | Bytes of machine-owned media to keep; uploads are never counted |
 | `INGEST_PER_FEED` | `5` | Items taken from each feed per poll |
-| `INGEST_MAX_CHARS` | `600` | Cap on the text kept per item |
+| `INGEST_MAX_CHARS` | `4000` | Cap on the text kept per item, sized for the summariser |
 | `FEED_MIN_INTERVAL_MS` | `900000` | Shortest gap between feed polls |
 | `FEED_USER_AGENT` | `zap/1.0 …` | Sent when fetching feeds |
 | `SUMMARY_MODEL` | `Xenova/distilbart-cnn-6-6` | Summarisation model |
@@ -621,3 +621,24 @@ The original is kept on the document as `summarizedFrom`, so nothing is lost.
 like the other inference. The model is roughly 300MB against the segmentation model's
 4.3GB, and fp32 for the same reason: q8 halves the memory and produces garbage —
 *"Korea raises data breach fines to 10% of revenue to 10%. Korea raisesData breach fines."*
+
+---
+
+## Reading feed items aloud
+
+Speech runs on the condensed text, never the raw item. A speech model reads
+characters and has no idea what a URL is: round-tripped through recognition,
+`Article URL: https://www.koreajoongangdaily.com/business Points: 165 # Comments: 46`
+came back as *"article Earl Hapsil, Corey's uning daily calm museness"*. That halting,
+arrhythmic delivery is the model sounding out character soup, and it took 9.5 seconds to
+say nothing.
+
+Two things prevent it. `speak` condenses a fetched document first if it has not been
+already, and `normaliseForSpeech` strips what remains — addresses, syndication
+boilerplate, and symbols that have no spoken form, while turning `10%` into
+`10 percent` and `&` into `and`. The same input now takes 2.6 seconds.
+
+`ingest` keeps up to `INGEST_MAX_CHARS` so the summariser has something to work with.
+Most news feeds publish only 150 to 200 characters, but some — Mozilla's blog, for
+instance — publish the full article in `content:encoded`, and the parser now takes
+whichever field carries the most text rather than the first one it finds.

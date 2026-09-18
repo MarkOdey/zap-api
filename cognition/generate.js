@@ -116,8 +116,10 @@ async function strategies(db, col, { images, videos, audio, texts }) {
     }
   }
 
-  // 4. Text with no narration yet.
+  // 4. Text with no narration yet — but only once it has been condensed. Reading a
+  // raw feed item aloud means sounding out its URLs and vote counts.
   for (const text of texts) {
+    if (text.origin && !text.summarizedFrom) continue;
     const narrated = await col.countDocuments({ generator: 'speak', derivedFrom: text.key });
     if (!narrated) {
       out.push({ action: 'speak', params: { key: text.key }, why: 'text without narration' });

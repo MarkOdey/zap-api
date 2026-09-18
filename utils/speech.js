@@ -16,6 +16,42 @@ const GAP_SECONDS = Number(process.env.TTS_GAP_SECONDS || 0.25);
 export const getSpeaker = () => getPipeline('text-to-speech', TTS_MODEL);
 
 /**
+ * Prepare text for a speech model, which reads characters and has no idea what a
+ * URL is.
+ *
+ * Feed items carry addresses, ids and symbols, and MMS-TTS attempts to pronounce
+ * all of it. Round-tripped through speech recognition,
+ * "Article URL: https://www.koreajoongangdaily.com/business Points: 165 # Comments: 46"
+ * came back as "article Earl Hapsil, Corey's uning daily calm museness" — the
+ * halting, arrhythmic delivery is the model sounding out character soup.
+ */
+export function normaliseForSpeech(text) {
+  return String(text ?? '')
+    // Syndication boilerplate: announcing it adds nothing when read aloud.
+    .replace(/\b(Article|Comments)\s+URL\s*:/gi, ' ')
+    .replace(/\bPoints\s*:\s*\d+/gi, ' ')
+    .replace(/#\s*Comments\s*:\s*\d+/gi, ' ')
+    // Addresses. Email first: the bare-domain rule below would otherwise eat the
+    // domain half and leave a dangling "a@". Each pattern must stop short of
+    // trailing sentence punctuation, or "Read https://x.com/y." loses its full
+    // stop along with the link.
+    .replace(/\S+@\S*[^\s.,;:!?]/g, ' ')
+    .replace(/\bhttps?:\/\/\S*[^\s.,;:!?)\]]/gi, ' ')
+    .replace(/\bwww\.\S*[^\s.,;:!?)\]]/gi, ' ')
+    .replace(/\b[\w-]+\.(?:com|org|net|io|co\.uk|ca|gov|edu)\b(?:\/\S*[^\s.,;:!?)\]])?/gi, ' ')
+    // Symbols that are read as words, or not at all.
+    .replace(/(\d)\s*%/g, '$1 percent')
+    .replace(/&amp;|&/g, ' and ')
+    .replace(/#/g, ' number ')
+    .replace(/\bvs\.?\b/gi, 'versus')
+    // Anything left that is not speech: brackets, pipes, slashes, stray marks.
+    .replace(/[|\\/_*<>[\]{}~^`]+/g, ' ')
+    .replace(/\s+([,.!?;:])/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Split text into chunks the model can handle, preferring sentence boundaries and
  * falling back to words so a single long sentence still fits.
  */
@@ -61,7 +97,7 @@ export function chunkText(text, limit = CHUNK_CHARS) {
  * @returns {Promise<{pcm: Float32Array, samplingRate: number, chunks: number}>}
  */
 export async function synthesize(text) {
-  const chunks = chunkText(text);
+  const chunks = chunkText(normaliseForSpeech(text));
   if (chunks.length === 0) throw new Error('speech: nothing to say');
 
   const speaker = await getSpeaker();
