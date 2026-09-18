@@ -9,6 +9,20 @@ import isolate from './isolate.js';
 import { isDerivative } from '../model/document.js';
 import { encodeDerived } from '../utils/vision.js';
 
+/**
+ * How the cutout meets the image beneath it.
+ *
+ * 'over' is an ordinary paste. The rest are the photographic ones: `screen` and
+ * `multiply` on two photographs give a double exposure, `difference` an inverted
+ * ghost. sharp has supported all of these all along; compose only ever pasted.
+ */
+const BLEND_MODES = new Set([
+  'over', 'multiply', 'screen', 'overlay', 'difference',
+  'exclusion', 'soft-light', 'hard-light', 'colour-dodge',
+]);
+
+export const BLENDS = [...BLEND_MODES];
+
 /** Stop generated images being fed back in indefinitely. */
 const MAX_DERIVATION_DEPTH = Number(process.env.MAX_DERIVATION_DEPTH || 3);
 
@@ -26,8 +40,9 @@ const MAX_DERIVATION_DEPTH = Number(process.env.MAX_DERIVATION_DEPTH || 3);
  * @param {number} [params.x]        Left position 0–1 of the target width (default centred)
  * @param {number} [params.y]        Top position 0–1 of the target height (default 0.5)
  * @param {number} [params.opacity]  0–1 (default 1)
+ * @param {string} [params.blend]    How the cutout meets the target (default 'over')
  */
-async function compose({ from, to, label, scale = 0.5, x, y = 0.5, opacity = 1 } = {}) {
+async function compose({ from, to, label, scale = 0.5, x, y = 0.5, opacity = 1, blend = 'over' } = {}) {
   if (!from || !to) throw new Error('compose: both from and to are required');
 
   const target = await find(to);
@@ -85,15 +100,19 @@ async function compose({ from, to, label, scale = 0.5, x, y = 0.5, opacity = 1 }
   const dataDir = process.env.DATA_DIR || './data';
   const targetBase = path.basename(target.source, path.extname(target.source));
   const sourceBase = path.basename(sourceDoc.source, path.extname(sourceDoc.source));
+  if (!BLEND_MODES.has(blend)) {
+    throw new Error(`compose: unknown blend "${blend}" — try ${[...BLEND_MODES].join(', ')}`);
+  }
+
   const composed = await targetImage
-    .composite([{ input: overlay, left, top }])
+    .composite([{ input: overlay, left, top, blend }])
     .png()
     .toBuffer();
 
   const out = await encodeDerived(composed);
   const outPath = path.join(
     dataDir,
-    `${targetBase}.mix-${sourceBase}.${out.ext}`.replace(/\.cut-/g, '-'),
+    `${targetBase}.mix-${sourceBase}${blend === 'over' ? '' : `-${blend}`}.${out.ext}`.replace(/\.cut-/g, '-'),
   );
   await fs.writeFile(outPath, out.buffer);
 
@@ -103,6 +122,7 @@ async function compose({ from, to, label, scale = 0.5, x, y = 0.5, opacity = 1 }
     name: path.basename(outPath),
     type: out.mime,
     generator: 'compose',
+    label: blend,
     derivedFrom: [sourceDoc.key, target.key],
   });
 

@@ -115,7 +115,10 @@ npm install
 | `MONTAGE_FPS` | `25` | Montage frame rate |
 | `MONTAGE_STILL_SECONDS` | `3` | Seconds per still in a montage |
 | `MONTAGE_MAX_ITEMS` | `12` | Cap on items joined in one montage |
-| `TTS_MODEL` | `Xenova/mms-tts-eng` | Speech model; the MMS family covers many languages (`-fra`, `-deu`, …) |
+| `TTS_ENGINE` | `kokoro` | `mms` falls back to the older 16kHz model |
+| `TTS_MODEL` | `onnx-community/Kokoro-82M-v1.0-ONNX` | Speech model |
+| `TTS_VOICE` | `af_heart` | Kokoro voice |
+| `MONTAGE_CROSSFADE` | `0.6` | Seconds of fade between montage items; 0 for hard cuts |
 | `TTS_CHUNK_CHARS` | `300` | Longest text synthesised in one pass |
 | `TTS_MAX_CHARS` | `5000` | Text beyond this is truncated |
 | `TTS_BITRATE` | `128k` | mp3 bitrate for narration |
@@ -642,3 +645,20 @@ boilerplate, and symbols that have no spoken form, while turning `10%` into
 Most news feeds publish only 150 to 200 characters, but some — Mozilla's blog, for
 instance — publish the full article in `content:encoded`, and the parser now takes
 whichever field carries the most text rather than the first one it finds.
+
+---
+
+## Voice
+
+Kokoro-82M at 24kHz, in place of MMS-TTS at 16kHz, which slurred anything longer than
+a phrase. It costs roughly three times the inference — about 9s for a sentence against
+3s — which is a fair trade for something queued and run out of process.
+
+It runs in a process of its own out of necessity, not just for the event loop:
+`kokoro-js` pins `@huggingface/transformers` ^3.5.1, bringing onnxruntime 1.21
+(napi-v3), while this project is on 4.3 with onnxruntime 1.30 (napi-v6). Two native
+runtimes at different ABIs cannot share a process — loading both fails with
+`version VERS_1.21.0 not found`. `scripts/tts-kokoro.mjs` keeps them apart.
+
+`TTS_ENGINE=mms` reverts, and MMS is still the route to other languages
+(`Xenova/mms-tts-fra`, `-deu`, `-spa`).

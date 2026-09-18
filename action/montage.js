@@ -16,6 +16,9 @@ const STILL_SECONDS = Number(process.env.MONTAGE_STILL_SECONDS || 3);
 const MAX_ITEMS = Number(process.env.MONTAGE_MAX_ITEMS || 12);
 const PRESET = process.env.RENDER_PRESET || 'veryfast';
 
+/** Seconds of crossfade between items. 0 restores hard cuts. */
+const CROSSFADE = Number(process.env.MONTAGE_CROSSFADE ?? 0.6);
+
 /**
  * Join several library items into one video.
  *
@@ -37,8 +40,9 @@ const PRESET = process.env.RENDER_PRESET || 'veryfast';
  * @param {number}   [params.count]   How many items to gather when walking (default 5)
  * @param {number}   [params.seconds] Seconds per still (default 3)
  * @param {string}   [params.audio]   Key of an audio document to lay under it
+ * @param {number}  [params.crossfade] Seconds of fade between items; 0 for hard cuts
  */
-async function montage({ keys, from, count = 5, seconds = STILL_SECONDS, audio } = {}) {
+async function montage({ keys, from, count = 5, seconds = STILL_SECONDS, audio, crossfade = CROSSFADE } = {}) {
   const wanted = Math.min(MAX_ITEMS, Math.max(2, Number(count) || 5));
 
   const chosen = Array.isArray(keys) && keys.length
@@ -92,20 +96,42 @@ async function montage({ keys, from, count = 5, seconds = STILL_SECONDS, audio }
     `[${i}:v]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=decrease,` +
     `pad=${WIDTH}:${HEIGHT}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=${FPS},format=yuv420p[v${i}]`,
   );
-  const inputs = docs.map((_, i) => `[v${i}]`).join('');
-  const filter = `${chains.join(';')};${inputs}concat=n=${docs.length}:v=1:a=0[out]`;
+  // How long each item is on screen, before any overlap is subtracted.
+  const lengths = docs.map(d => (d.kind === 'image' ? seconds : (d.streams.duration ?? seconds)));
+  const fade = Math.max(0, Math.min(Number(crossfade) || 0, Math.min(...lengths) / 2));
+
+  let filter;
+  let visualSeconds;
+
+  if (fade > 0 && docs.length >= 2) {
+    // xfade joins two streams at a time, so they chain. Each offset is where the
+    // fade begins in the running total, which shrinks by the overlap every join.
+    const steps = [];
+    let previous = 'v0';
+    let offset = lengths[0] - fade;
+
+    for (let i = 1; i < docs.length; i++) {
+      const label = i === docs.length - 1 ? 'out' : `x${i}`;
+      steps.push(`[${previous}][v${i}]xfade=transition=fade:duration=${fade}:offset=${offset.toFixed(3)}[${label}]`);
+      previous = label;
+      offset += lengths[i] - fade;
+    }
+
+    filter = `${chains.join(';')};${steps.join(';')}`;
+    visualSeconds = lengths.reduce((a, b) => a + b, 0) - fade * (docs.length - 1);
+  } else {
+    const inputs = docs.map((_, i) => `[v${i}]`).join('');
+    filter = `${chains.join(';')};${inputs}concat=n=${docs.length}:v=1:a=0[out]`;
+    visualSeconds = lengths.reduce((a, b) => a + b, 0);
+  }
 
   if (track) args.push('-i', track.source);
 
   args.push('-filter_complex', filter, '-map', '[out]');
 
   if (track) {
-    // The visuals have a fixed length, so cut at whichever runs out first rather
-    // than leaving silence or a frozen tail.
-    const visualSeconds = docs.reduce(
-      (total, d) => total + (d.kind === 'image' ? seconds : (d.streams.duration ?? seconds)),
-      0,
-    );
+    // The visuals have a fixed length — shorter when items overlap — so cut at
+    // whichever runs out first rather than leaving silence or a frozen tail.
     const trackSeconds = await probeStreams(track.source).then(s => s.duration ?? visualSeconds);
     args.push(
       '-map', `${docs.length}:a:0`,
@@ -122,7 +148,7 @@ async function montage({ keys, from, count = 5, seconds = STILL_SECONDS, audio }
     outPath,
   );
 
-  console.log(`montage: ${docs.length} items${track ? ` + ${track.key}` : ''} → ${outPath}`);
+  console.log(`montage: ${docs.length} items${fade > 0 ? ` crossfading ${fade}s` : ''}${track ? ` + ${track.key}` : ''} → ${outPath}`);
   docs.forEach(({ doc, kind }) => console.log(`  ${kind.padEnd(5)} ${doc.key}`));
 
   const startedAt = Date.now();

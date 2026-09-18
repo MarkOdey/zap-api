@@ -1,11 +1,33 @@
+import { spawn } from 'node:child_process';
+import fsp from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { getPipeline } from './models.js';
 
+const KOKORO_RUNNER = path.join(
+  path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'tts-kokoro.mjs',
+);
+
 /**
- * MMS-TTS is a VITS model: it needs no speaker embeddings, unlike SpeechT5, so a
- * single model id is enough. The family covers many languages — `Xenova/mms-tts-fra`,
- * `-deu`, `-spa` and so on — which is what TTS_MODEL is for.
+ * Which voice engine to use.
+ *
+ * Kokoro by default. MMS-TTS speaks at 16kHz and sounds slurred on anything longer
+ * than a phrase; Kokoro is 82M parameters, outputs 24kHz, and is markedly clearer.
+ * It costs roughly three times the inference — about 3s against 1s for a sentence —
+ * which is a good trade for something that runs out of process on a queue.
+ *
+ * TTS_ENGINE=mms falls back, and MMS remains the way to reach other languages:
+ * Xenova/mms-tts-fra, -deu, -spa and so on.
  */
-export const TTS_MODEL = process.env.TTS_MODEL || 'Xenova/mms-tts-eng';
+export const TTS_ENGINE = (process.env.TTS_ENGINE || 'kokoro').toLowerCase();
+
+export const TTS_MODEL = process.env.TTS_MODEL
+  || (TTS_ENGINE === 'kokoro' ? 'onnx-community/Kokoro-82M-v1.0-ONNX' : 'Xenova/mms-tts-eng');
+
+/** Kokoro ships several voices; af_heart is its default American English one. */
+export const TTS_VOICE = process.env.TTS_VOICE || 'af_heart';
 
 /** Longest text synthesised in one pass; longer input is split on sentences. */
 export const CHUNK_CHARS = Number(process.env.TTS_CHUNK_CHARS || 300);
@@ -14,6 +36,45 @@ export const CHUNK_CHARS = Number(process.env.TTS_CHUNK_CHARS || 300);
 const GAP_SECONDS = Number(process.env.TTS_GAP_SECONDS || 0.25);
 
 export const getSpeaker = () => getPipeline('text-to-speech', TTS_MODEL);
+
+/**
+ * Kokoro runs in a process of its own.
+ *
+ * It is not a transformers.js pipeline — its architecture is absent from the task
+ * mapping — and kokoro-js pins transformers ^3.5.1, bringing onnxruntime 1.21
+ * (napi-v3) alongside this project's 1.30 (napi-v6). Two native runtimes at
+ * different ABIs cannot share a process; loading both fails outright. The process
+ * boundary is what keeps them apart.
+ */
+async function speakWithKokoro(chunks) {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zap-tts-'));
+  const chunksPath = path.join(dir, 'chunks.json');
+  const pcmPath = path.join(dir, 'speech.pcm');
+
+  try {
+    await fsp.writeFile(chunksPath, JSON.stringify(chunks), 'utf8');
+
+    const meta = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [KOKORO_RUNNER, chunksPath, pcmPath], { env: process.env });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', d => { out += d; });
+      // The phonemizer writes a great deal to stderr; keep only the tail for errors.
+      child.stderr.on('data', d => { err = (err + d).slice(-500); });
+      child.on('error', reject);
+      child.on('close', code => {
+        if (code !== 0) return reject(new Error(`kokoro exited with ${code}: ${err.trim().split('\n').pop()}`));
+        try { resolve(JSON.parse(out.trim())); } catch { reject(new Error('kokoro: unreadable result')); }
+      });
+    });
+
+    const buffer = await fsp.readFile(pcmPath);
+    const pcm = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
+    return { pcm: Float32Array.from(pcm), samplingRate: meta.samplingRate, chunks: meta.chunks };
+  } finally {
+    await fsp.rm(dir, { recursive: true, force: true });
+  }
+}
 
 /**
  * Prepare text for a speech model, which reads characters and has no idea what a
@@ -99,6 +160,8 @@ export function chunkText(text, limit = CHUNK_CHARS) {
 export async function synthesize(text) {
   const chunks = chunkText(normaliseForSpeech(text));
   if (chunks.length === 0) throw new Error('speech: nothing to say');
+
+  if (TTS_ENGINE === 'kokoro') return speakWithKokoro(chunks);
 
   const speaker = await getSpeaker();
   const parts = [];

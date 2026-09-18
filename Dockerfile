@@ -20,4 +20,6 @@ COPY . .
 # re-downloads ~200MB from the Hugging Face Hub.
 ENV MODEL_CACHE_DIR=/app/.models
 
+# Kokoro's weights land in the same cache; mount it or they re-download.
+
 CMD ["npm", "run", "start"]
