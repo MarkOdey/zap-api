@@ -11,10 +11,9 @@ async function upload(data) {
   const { meta, data: payload } = data;
   if (!meta?.name) throw new Error("upload: missing meta.name");
 
-  const base64 = payload.split(";base64,").pop();
-  const source = "data/" + meta.name;
+  const source = path.join(process.env.DATA_DIR || "./data", path.basename(meta.name));
 
-  await fs.writeFile(source, base64, { encoding: "base64" });
+  await writePayload(source, payload);
   console.log("upload: file written to", source);
 
   if (meta.type?.includes("video")) {
@@ -22,6 +21,37 @@ async function upload(data) {
   } else {
     await record({ key: source, source, ...meta });
     return { segments: 1 };
+  }
+}
+
+/**
+ * Write an uploaded payload.
+ *
+ * The file picker sends a data URL (FileReader.readAsDataURL); the text box sends
+ * the text itself. Treating both as base64 meant typed text was base64-*decoded*
+ * into a few bytes of binary — "Hello there" became 7 unreadable bytes — which then
+ * rendered as garbage in the text player.
+ */
+export async function writePayload(source, payload) {
+  if (typeof payload !== "string") throw new Error("upload: payload must be a string");
+
+  if (!payload.startsWith("data:")) {
+    // Plain text straight from the text box.
+    await fs.writeFile(source, payload, "utf8");
+    return;
+  }
+
+  const comma = payload.indexOf(",");
+  if (comma === -1) throw new Error("upload: malformed data URL");
+
+  const header = payload.slice(0, comma);
+  const body = payload.slice(comma + 1);
+
+  if (header.includes(";base64")) {
+    await fs.writeFile(source, body, { encoding: "base64" });
+  } else {
+    // data:text/plain,Hello%20there — percent-encoded, not base64.
+    await fs.writeFile(source, decodeURIComponent(body), "utf8");
   }
 }
 
