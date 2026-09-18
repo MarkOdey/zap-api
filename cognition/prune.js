@@ -1,14 +1,9 @@
-import MongoConnexion from '../utils/MongoConnexion.js';
+import prune from '../action/prune.js';
 
-const PRUNE_THRESHOLD = 0.1;
-
-async function pruneTask() {
-  const db = await MongoConnexion.db();
-  const col = db.collection('edges');
-  const result = await col.deleteMany({ weight: { $lt: PRUNE_THRESHOLD } });
-  if (result.deletedCount > 0) {
-    console.log('prune: removed', result.deletedCount, 'low-weight edges');
-  }
+/**
+ * Periodic library maintenance. The work lives in action/prune.js so it can also
+ * be run by hand from the terminal or the CLI.
+ */
+export default async function pruneTask() {
+  await prune();
 }
-
-export default pruneTask;

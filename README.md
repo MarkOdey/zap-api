@@ -128,6 +128,8 @@ npm install
 | `RECENCY_FLOOR` | `0.1` | Lowest recency multiplier, so old media stays reachable |
 | `RECENCY_STRENGTH` | `1` | 0 selects on weight alone, ignoring age |
 | `TRAVERSAL_PROBABILITY` | `0.6` | How often playback follows an edge rather than drawing from the whole library |
+| `DATA_BUDGET_MB` | `1024` | Bytes of *generated* media to keep; uploads are never counted |
+| `EDGE_PRUNE_THRESHOLD` | `0.1` | Weight below which an associative edge is dropped |
 | `GENERATE_ENABLED` | `true` | Unattended generation; `false` disables it |
 | `GENERATE_INTERVAL_MS` | `30000` | How often it looks for something to do |
 | `GENERATE_MAX_DOCS` | `200` | Ceiling on generated documents |
@@ -188,6 +190,7 @@ node index.js removeAll   # drop all documents from the data collection
 | `crop` | Trims a video segment using ffmpeg. |
 | `normalize` | Re-encodes a video to H.264/AAC using ffmpeg. |
 | `concat` | Concatenates two media files (requires external `mmcat` binary). |
+| `prune` | Repairs the library and enforces the generated-media budget. `dryRun` reports without deleting. |
 | `removeAll` | Deletes all documents from the MongoDB data collection. |
 | `isolate` | Segments an indexed image and saves each cut-out shape as a transparent PNG. |
 | `compose` | Mixes a shape isolated from one image into another, saving the composite. |
@@ -523,3 +526,33 @@ Two details make it work in practice, both found by measuring rather than reason
 
 Measured on a 100-document library: the newer half takes about two thirds of plays, with
 28 distinct items across 35 plays — the bias is clear without collapsing variety.
+
+---
+
+## Data limit
+
+`prune` runs every two minutes and does two separate jobs.
+
+**Repair**, unconditionally: documents whose file has gone, documents that no longer
+satisfy the model, and edges pointing at documents that do not exist. Each of those stalls
+playback if selected, so they go regardless of any budget.
+
+**Budget**: if generated media exceeds `DATA_BUDGET_MB`, the lowest-scoring is deleted
+first — by the same `weight × recency` score playback uses, so what goes is what you
+engage with least, oldest first.
+
+**Uploads are never counted and never deleted.** The budget governs only what the machine
+made. Anything without a `generator` field is untouchable, so nothing you put in can be
+lost to it.
+
+Provenance edges (`derivative`, `soundtrack`, `sequence`) are never pruned by weight.
+They record where something came from, which is not an opinion to be voted away.
+
+```bash
+node index.js prune '{"dryRun":true}'              # report without deleting
+node index.js prune '{"dryRun":true,"budgetMb":30}' # try a tighter budget first
+```
+
+Measured when this was written: 544MB of uploads, 64MB of generated media, growing about
+52MB a day at the default generation rate — so the 1GB default is roughly three weeks of
+output before anything is evicted.
