@@ -7,7 +7,7 @@ import drainOne from './utils/worker.js';
 import exploreTask from './cognition/explore.js';
 import relateTask  from './cognition/relate.js';
 import pruneTask   from './cognition/prune.js';
-import weaveTask   from './cognition/weave.js';
+import generateTask from './cognition/generate.js';
 
 // Register actions that connected sessions will run
 Session.addAction(play);
@@ -47,8 +47,8 @@ cognition.register('queue',   drainOne,    500);
 cognition.register('explore', exploreTask, 60 * 1000);
 cognition.register('relate',  relateTask,  30 * 1000);
 cognition.register('prune',   pruneTask,  120 * 1000);
-// Slow on purpose: rendering competes with everything else for the single queue slot.
-cognition.register('weave',   weaveTask,  Number(process.env.WEAVE_INTERVAL_MS || 5 * 60 * 1000));
+// Ticks often, but only acts when the queue is completely idle — see generate.js.
+cognition.register('generate', generateTask, Number(process.env.GENERATE_INTERVAL_MS || 30 * 1000));
 cognition.start();
 
 Session.attachCognition(cognition);

@@ -122,10 +122,9 @@ npm install
 | `OUTPUT_FORMAT` | `webp` | Encoding for generated images; `png` for lossless |
 | `OUTPUT_QUALITY` | `90` | WebP quality (alpha is always kept at 100) |
 | `QUEUE_HISTORY` | `50` | Finished jobs kept for the status view |
-| `WEAVE_ENABLED` | `true` | Scheduled rendering of soundtrack pairings; `false` disables it |
-| `WEAVE_MODE` | `linked` | `linked` renders existing soundtrack edges; `random` also invents pairings |
-| `WEAVE_INTERVAL_MS` | `300000` | How often the weave task looks for work |
-| `WEAVE_MAX_RENDERS` | `50` | Ceiling on rendered videos, so it cannot fill the disk |
+| `GENERATE_ENABLED` | `true` | Unattended generation; `false` disables it |
+| `GENERATE_INTERVAL_MS` | `30000` | How often it looks for something to do |
+| `GENERATE_MAX_DOCS` | `200` | Ceiling on generated documents |
 
 ---
 
@@ -420,24 +419,34 @@ its narration, so the text is read aloud when it comes up in playback. Pass
 
 ---
 
-## Scheduled rendering
+## Unattended generation
 
-The `weave` cognition task turns soundtrack pairings into videos without being asked.
+The `generate` cognition task keeps the library growing on its own. Every 30 seconds, if
+nothing is in flight, it picks a transformation that applies to the media on hand and
+queues it with random inputs:
 
-By default it runs in `linked` mode: it only renders pairs that already have a
-`soundtrack` edge, so it materialises a decision someone made rather than inventing
-content. That makes `speak` self-completing — narrate a text document and a video of it
-appears on its own. `WEAVE_MODE=random` also pairs a visual with an arbitrary track.
+| | |
+|---|---|
+| a soundtrack pairing not yet rendered | `render` — deliberate pairings come first |
+| text with no narration | `speak` |
+| a still or clip plus a random track | `render` |
+| a clip | `effect` — speed, reverse, greyscale, colour, fade |
+| a still | `effect` zoom or pan, or `isolate` |
+| several items | `montage` |
 
-Safeguards, since it competes for the single queue slot and writes files:
+Safeguards, because it writes files and shares one queue slot with everything else:
 
-- skips entirely while a `render` job is queued or running, so it cannot starve work
-  triggered by hand
-- refuses to render a pair that already has a rendered document
-- never renders its own output — a render produces video, which is itself a renderable
-  visual, so without this it would loop
-- stops at `WEAVE_MAX_RENDERS` documents
-- remembers pairs whose render failed and does not retry them until restart, rather than
-  spinning the queue on a broken file
+- **acts only when the queue is completely idle** — nothing queued *or* running. Jobs run
+  for seconds to minutes, so anything added while work is in flight would stack up behind
+  it and starve whatever was triggered by hand.
+- **never uses a generated document as input.** A transformation's output is itself
+  transformable, so feeding results back in compounds without bound.
+- stops at `GENERATE_MAX_DOCS`.
+- remembers what failed and does not retry it, rather than reattempting a broken file
+  every 30 seconds.
+
+It replaces the earlier `weave` task, whose job — rendering linked soundtrack pairs — is
+now the first strategy above. Two tasks feeding one concurrency-1 queue would only have
+taken turns.
 
 Run `help` in the terminal to see every action and its arguments.
