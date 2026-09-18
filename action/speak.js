@@ -26,7 +26,9 @@ const BITRATE = process.env.TTS_BITRATE || '128k';
  * @returns {Promise<{key: string, seconds: number, characters: number}>}
  */
 async function speak({ key, narrate = true } = {}) {
-  if (!key) throw new Error('speak: key is required');
+  if (typeof key !== 'string' || !key.trim()) {
+    throw new Error(`speak: key must be a text document's key — try "speak <key>", not a bare flag`);
+  }
 
   const doc = await find(key);
   if (!doc) throw new Error(`speak: no document for key ${key}`);
