@@ -233,15 +233,21 @@ function Session(socket) {
   socket.on("like", () => appreciateCurrent(+0.1, "like"));
   socket.on("dislike", () => appreciateCurrent(-0.1, "dislike"));
 
-  socket.on("upload", async function (data) {
-    console.log("upload event received!");
+  // Acks as well as emitting, so a client uploading several files can await each
+  // one. `upload:done` alone carries no correlation, so two in flight would be
+  // indistinguishable.
+  socket.on("upload", async function (data, ack) {
+    const name = typeof data === "object" ? data?.meta?.name : undefined;
+    let outcome;
     try {
       const result = await COMMANDS.upload(data);
-      socket.emit("upload:done", { ok: true, segments: result.segments });
+      outcome = { ok: true, name, segments: result.segments };
     } catch (err) {
-      console.error("upload error:", err.message);
-      socket.emit("upload:done", { ok: false, error: err.message });
+      console.error("upload error:", name ?? "(unnamed)", err.message);
+      outcome = { ok: false, name, error: err.message };
     }
+    socket.emit("upload:done", outcome);
+    if (typeof ack === "function") ack(outcome);
   });
 
   Session.sessions.push(this);
