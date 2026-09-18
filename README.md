@@ -304,6 +304,13 @@ A job moves `queued → running → done | failed`, or `queued → cancelled`. J
 running while jobs remain, so a backlog is not paced by it — taking one job per tick would
 insert that interval between every job.
 
+**Inference runs out of process.** `isolate`, `compose` and `speak` are marked
+`subprocess` in the registry and run via `scripts/run-action.mjs`. ONNX inference is
+CPU-bound and synchronous, so in the API process it blocked the event loop — a trivial
+request went from 5ms to over 7 seconds — and playback stalled for as long as a job ran.
+Out of process it cannot, and the child exiting also returns the model's memory: the API
+sits at ~186MB instead of holding 4.3GB.
+
 **Concurrency is 1 by design.** The vision actions are CPU-bound ONNX inference, and
 running two at once thrashes rather than parallelizes. `Cognition` reschedules a task only
 after its previous run settles, so a 20s job cannot be overlapped by the next 500ms tick.

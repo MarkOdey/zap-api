@@ -1,5 +1,6 @@
 import queue from './queue.js';
-import { COMMANDS } from '../action/registry.js';
+import { ACTIONS, COMMANDS } from '../action/registry.js';
+import { runInSubprocess } from './subprocess.js';
 
 /**
  * Drain the queue.
@@ -29,7 +30,10 @@ async function run(job) {
 
   console.log(`queue: running ${job.action} (${job.id})`);
   try {
-    const result = await action(job.params);
+    // Inference actions run out of process; anything else runs here.
+    const result = ACTIONS[job.action]?.subprocess
+      ? await runInSubprocess(job.action, job.params)
+      : await action(job.params);
     queue.settle(job, { result });
     console.log(`queue: ${job.action} done in ${job.finishedAt - job.startedAt}ms`);
   } catch (err) {

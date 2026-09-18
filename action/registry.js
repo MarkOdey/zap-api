@@ -33,6 +33,11 @@ import upload from './upload.js';
  * `queueable: true` means the action is slow enough to be worth running through
  * the queue rather than inline — the vision actions take ~20s, explore scales
  * with the library.
+ *
+ * `subprocess: true` means it must run in its own process. ONNX inference is
+ * CPU-bound and synchronous, so in the API process it blocked the event loop for
+ * seconds at a time and playback stalled while a job ran. ffmpeg actions do not
+ * need this: they already spawn.
  */
 // `concat` is deliberately absent: it shells out to ./action/mmcat, a binary that
 // exists nowhere in the repo or the image, and reads SourceFile/FileName — exiftool
@@ -41,13 +46,13 @@ import upload from './upload.js';
 // reimplements it with ffmpeg.
 export const ACTIONS = {
   explore:    { fn: explore,    queueable: true,  params: [] },
-  isolate:    { fn: isolate,    queueable: true,  params: ['key', 'label', 'all'] },
-  compose:    { fn: compose,    queueable: true,  params: ['from', 'to', 'label', 'scale', 'x', 'y', 'opacity'] },
+  isolate:    { fn: isolate,    queueable: true,  subprocess: true, params: ['key', 'label', 'all'] },
+  compose:    { fn: compose,    queueable: true,  subprocess: true, params: ['from', 'to', 'label', 'scale', 'x', 'y', 'opacity'] },
   render:     { fn: render,     queueable: true,  params: ['visual', 'audio', 'maxDim', 'background'] },
   adjust:     { fn: adjust,     queueable: true,  params: ['key', 'adjust', 'sigma', 'brightness', 'saturation', 'hue', 'colour', 'value', 'levels', 'degrees'] },
   effect:     { fn: effect,     queueable: true,  params: ['key', 'effect', 'factor', 'seconds', 'degrees', 'brightness', 'contrast', 'saturation', 'direction', 'to'] },
   montage:    { fn: montage,    queueable: true,  params: ['keys', 'from', 'count', 'seconds', 'audio'] },
-  speak:      { fn: speak,      queueable: true,  params: ['key', 'narrate'] },
+  speak:      { fn: speak,      queueable: true,  subprocess: true, params: ['key', 'narrate'] },
   upload:     { fn: upload,     queueable: true,  params: ['meta', 'data'] },
   normalize:  { fn: normalize,  queueable: true,  params: ['source'] },
   crop:       { fn: crop,       queueable: true,  params: ['key', 'start', 'duration'] },
@@ -85,6 +90,7 @@ export const describe = () =>
     name,
     params: spec.params,
     queueable: !!spec.queueable,
+    subprocess: !!spec.subprocess,
     needsSession: !!spec.needsSession,
   }));
 
