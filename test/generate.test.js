@@ -46,10 +46,19 @@ describe('generate (needs MONGO_URL)', { skip: NO_DB && 'MONGO_URL not set' }, (
     assert.equal(queue.snapshot().jobs.length, 1, 'should not have added a second job');
   });
 
-  it('queues nothing while a job is merely waiting', async () => {
+  // A short job waiting its turn should not block generation: at a 5s drain
+  // interval an explore job sits queued far longer than it takes to run.
+  it('still generates while a short job waits its turn', async () => {
     queue.push('explore');
     await generateTask();
+    assert.equal(queue.snapshot().jobs.length, 2, 'should have added work alongside it');
+  });
+
+  it('does not stack a second job of its own', async () => {
+    await generateTask();
     assert.equal(queue.snapshot().jobs.length, 1);
+    await generateTask();
+    assert.equal(queue.snapshot().jobs.length, 1, 'its own pending job must block another');
   });
 
   it('only chooses actions that exist and are queueable', async () => {

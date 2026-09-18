@@ -17,6 +17,7 @@ import speak from './speak.js';
 import play from './play.js';
 import prune from './prune.js';
 import record from './record.js';
+import remove from './remove.js';
 import removeAll from './removeAll.js';
 import traverse from './traverse.js';
 import update from './update.js';
@@ -66,6 +67,7 @@ export const ACTIONS = {
   traverse:   { fn: traverse,   queueable: false, params: ['key', 'type', 'direction'] },
   appreciate: { fn: appreciate, queueable: false, params: ['key', 'edgeKey', 'delta'] },
   prune:      { fn: prune,      queueable: false, params: ['dryRun', 'budgetMb'] },
+  remove:     { fn: remove,     queueable: false, params: ['key', 'cascade'] },
   removeAll:  { fn: removeAll,  queueable: false, params: [] },
 
   // Needs a live session, so it is CLI/loop only — not a terminal command.

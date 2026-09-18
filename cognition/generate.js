@@ -23,6 +23,9 @@ const ADJUSTMENTS = ['blur', 'greyscale', 'negate', 'colour', 'tint', 'gamma', '
 /** Pairs whose job failed, so a broken file is not retried every 30 seconds. */
 const failed = new Set();
 
+/** The job queued last, so a second is never stacked behind it. */
+let lastQueued = null;
+
 queue.on('change', (job) => {
   if (job.state !== 'failed') return;
   failed.add(signature(job.action, job.params));
@@ -35,11 +38,16 @@ const signature = (action, params = {}) =>
 export default async function generateTask() {
   if (!ENABLED) return;
 
-  // Strictly one thing at a time. The queue is concurrency-1 and jobs run for
-  // seconds to minutes, so anything queued here while work is in flight would
-  // stack up behind it and starve whatever the user triggers by hand.
+  // Hold off while work is actually in flight, and never stack a second job of our
+  // own — but do not skip merely because something short is waiting its turn.
+  //
+  // Skipping on anything *queued* meant that at a 5s drain interval an explore
+  // job, which runs in about 200ms, blocked generation for the entire time it sat
+  // in the queue. Measured: half of all ticks produced nothing.
   const { jobs } = queue.snapshot();
-  if (jobs.some(j => j.state === 'queued' || j.state === 'running')) return;
+
+  if (jobs.some(j => j.state === 'running')) return;
+  if (lastQueued && jobs.some(j => j.id === lastQueued && j.state === 'queued')) return;
 
   const db = await MongoConnexion.db();
   const col = db.collection('data');
@@ -54,7 +62,7 @@ export default async function generateTask() {
   if (usable.length === 0) return;
 
   const choice = usable[Math.floor(Math.random() * usable.length)];
-  queue.push(choice.action, choice.params);
+  lastQueued = queue.push(choice.action, choice.params).id;
   console.log(`generate: queued ${choice.action} ${JSON.stringify(choice.params)} (${choice.why})`);
 }
 
