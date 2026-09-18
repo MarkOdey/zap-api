@@ -5,7 +5,7 @@ import segment from './segment.js';
 import connect from './connect.js';
 
 async function upload(data) {
-  console.log("upload: video uploaded!!", data);
+  console.log("upload: receiving", typeof data === "string" ? "(json)" : data?.meta?.name);
   if (typeof data === "string") data = JSON.parse(data);
 
   const { meta, data: payload } = data;
