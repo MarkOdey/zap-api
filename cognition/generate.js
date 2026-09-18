@@ -12,8 +12,23 @@ import { SOUNDTRACK } from '../relation/statement.js';
  */
 const ENABLED = process.env.GENERATE_ENABLED !== 'false';
 
-/** Ceiling on generated documents. A 30s generator fills a disk quickly otherwise. */
-const MAX_DOCS = Number(process.env.GENERATE_MAX_DOCS || 200);
+/**
+ * Optional ceiling on generated documents. Unset by default.
+ *
+ * A count is the wrong limit: generated files range from a 4KB cutout to a 5MB
+ * scored video, so two hundred documents is anywhere between a megabyte and a
+ * gigabyte. Worse, it contradicted the byte budget prune enforces — generation
+ * stopped dead at two hundred documents while sitting at 328MB of a 1024MB budget,
+ * and prune would not evict anything to make room because it was well under. The
+ * system could neither create nor reclaim.
+ *
+ * DATA_BUDGET_MB is the limit now, enforced in one place: prune evicts the
+ * lowest-scoring generated media once the bytes exceed it, and generation carries
+ * on. Set GENERATE_MAX_DOCS to reinstate a count cap.
+ */
+const MAX_DOCS = process.env.GENERATE_MAX_DOCS === undefined
+  ? Infinity
+  : Number(process.env.GENERATE_MAX_DOCS);
 
 /** Video effects worth applying unattended. Trim and rotate need arguments to mean much. */
 const VIDEO_EFFECTS = ['speed', 'reverse', 'greyscale', 'colour', 'fade'];
@@ -60,8 +75,10 @@ export default async function generateTask() {
   const db = await MongoConnexion.db();
   const col = db.collection('data');
 
-  const generated = await col.countDocuments({ generator: { $exists: true } });
-  if (generated >= MAX_DOCS) return;
+  if (Number.isFinite(MAX_DOCS)) {
+    const generated = await col.countDocuments({ generator: { $exists: true } });
+    if (generated >= MAX_DOCS) return;
+  }
 
   const candidates = await gather(db, col);
   const options = await strategies(db, col, candidates);

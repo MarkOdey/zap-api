@@ -142,7 +142,7 @@ npm install
 | `EDGE_PRUNE_THRESHOLD` | `0.1` | Weight below which an associative edge is dropped |
 | `GENERATE_ENABLED` | `true` | Unattended generation; `false` disables it |
 | `GENERATE_INTERVAL_MS` | `30000` | How often it looks for something to do |
-| `GENERATE_MAX_DOCS` | `200` | Ceiling on generated documents |
+| `GENERATE_MAX_DOCS` | *(unset)* | Optional count cap on generated documents; `DATA_BUDGET_MB` is the real limit |
 
 ---
 
@@ -487,7 +487,13 @@ Safeguards, because it writes files and shares one queue slot with everything el
   it and starve whatever was triggered by hand.
 - **never uses a generated document as input.** A transformation's output is itself
   transformable, so feeding results back in compounds without bound.
-- stops at `GENERATE_MAX_DOCS`.
+- **is bounded by bytes, not by a count.** Generated files range from a 4KB cutout to a
+  5MB scored video, so a document count says almost nothing about disk. Generation runs
+  freely and `prune` evicts the lowest-scoring generated media once `DATA_BUDGET_MB` is
+  exceeded — one limit, enforced in one place. (An earlier count ceiling of 200 deadlocked
+  the system: generation stopped dead while sitting at 328MB of a 1024MB budget, and prune
+  would not evict anything to make room because it was well under. Set `GENERATE_MAX_DOCS`
+  to reinstate a count cap.)
 - remembers what failed and does not retry it, rather than reattempting a broken file
   every 30 seconds.
 

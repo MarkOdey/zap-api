@@ -6,6 +6,13 @@ import { SUBJECT } from '../relation/statement.js';
 import TYPES from '../relation/statement.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 
+// Each test file runs in its own process and shares one MongoDB server, so they
+// would otherwise collide: a file that counts documents sees another file's
+// fixtures. MONGO_DB overrides the database taken from MONGO_URL, giving this
+// file a database of its own.
+process.env.MONGO_DB = 'zap-test-analyse';
+
+
 // Rejects before a model loads or a database is touched.
 describe('analyse: validation', () => {
   it('requires an image key, and a string one', async () => {

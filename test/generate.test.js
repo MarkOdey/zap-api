@@ -5,6 +5,13 @@ import queue from '../utils/queue.js';
 import generateTask from '../cognition/generate.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 
+// Each test file runs in its own process and shares one MongoDB server, so they
+// would otherwise collide: a file that counts documents sees another file's
+// fixtures. MONGO_DB overrides the database taken from MONGO_URL, giving this
+// file a database of its own.
+process.env.MONGO_DB = 'zap-test-generate';
+
+
 const NO_DB = !process.env.MONGO_URL;
 
 describe('generate (needs MONGO_URL)', { skip: NO_DB && 'MONGO_URL not set' }, () => {
@@ -31,6 +38,21 @@ describe('generate (needs MONGO_URL)', { skip: NO_DB && 'MONGO_URL not set' }, (
   });
 
   beforeEach(() => queue.clear());
+
+  /** Re-import generate with GENERATE_MAX_DOCS set (or unset), then restore it. */
+  async function withCeiling(value, body) {
+    const previous = process.env.GENERATE_MAX_DOCS;
+    if (value === undefined) delete process.env.GENERATE_MAX_DOCS;
+    else process.env.GENERATE_MAX_DOCS = value;
+    try {
+      const fresh = (await import(`../cognition/generate.js?ceiling=${Date.now()}`)).default;
+      queue.clear();
+      await body(fresh);
+    } finally {
+      if (previous === undefined) delete process.env.GENERATE_MAX_DOCS;
+      else process.env.GENERATE_MAX_DOCS = previous;
+    }
+  }
 
   it('queues exactly one job when idle', async () => {
     await generateTask();
@@ -107,18 +129,22 @@ describe('generate (needs MONGO_URL)', { skip: NO_DB && 'MONGO_URL not set' }, (
     await col.deleteOne({ key: 'gentest/derived.mp4' });
   });
 
-  it('stops once the generated ceiling is reached', async () => {
-    const previous = process.env.GENERATE_MAX_DOCS;
-    process.env.GENERATE_MAX_DOCS = '0';
-    try {
-      const fresh = (await import(`../cognition/generate.js?ceiling=${Date.now()}`)).default;
-      queue.clear();
+  // A count cap is off by default — DATA_BUDGET_MB governs instead — but it is
+  // still honoured when set. An earlier hard ceiling of 200 deadlocked the running
+  // system: generation stopped while well under the byte budget, so prune had
+  // nothing to evict and nothing could be created again.
+  it('stops at a count ceiling when one is set', async () => {
+    await withCeiling('0', async (fresh) => {
       await fresh();
       assert.equal(queue.snapshot().jobs.length, 0, 'should queue nothing at the ceiling');
-    } finally {
-      if (previous === undefined) delete process.env.GENERATE_MAX_DOCS;
-      else process.env.GENERATE_MAX_DOCS = previous;
-    }
+    });
+  });
+
+  it('has no count ceiling unless one is set', async () => {
+    await withCeiling(undefined, async (fresh) => {
+      await fresh();
+      assert.equal(queue.snapshot().jobs.length, 1, 'the byte budget is the limit, not a count');
+    });
   });
 
   it('can be switched off', async () => {

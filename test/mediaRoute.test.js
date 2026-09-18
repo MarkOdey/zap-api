@@ -8,6 +8,13 @@ import express from 'express';
 import { parseRange, mediaUrl, mountMedia } from '../utils/mediaRoute.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 
+// Each test file runs in its own process and shares one MongoDB server, so they
+// would otherwise collide: a file that counts documents sees another file's
+// fixtures. MONGO_DB overrides the database taken from MONGO_URL, giving this
+// file a database of its own.
+process.env.MONGO_DB = 'zap-test-mediaRoute';
+
+
 describe('parseRange', () => {
   const SIZE = 1000;
 

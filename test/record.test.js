@@ -5,6 +5,13 @@ import record from '../action/record.js';
 import find from '../action/find.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 
+// Each test file runs in its own process and shares one MongoDB server, so they
+// would otherwise collide: a file that counts documents sees another file's
+// fixtures. MONGO_DB overrides the database taken from MONGO_URL, giving this
+// file a database of its own.
+process.env.MONGO_DB = 'zap-test-record';
+
+
 // record() validates before it opens a connection, so these need no database.
 describe('record: validation gate (no DB required)', () => {
   it('rejects a document with no key', async () => {

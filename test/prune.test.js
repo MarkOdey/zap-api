@@ -6,6 +6,13 @@ import os from 'node:os';
 
 import MongoConnexion from '../utils/MongoConnexion.js';
 
+// Each test file runs in its own process and shares one MongoDB server, so they
+// would otherwise collide: a file that counts documents sees another file's
+// fixtures. MONGO_DB overrides the database taken from MONGO_URL, giving this
+// file a database of its own.
+process.env.MONGO_DB = 'zap-test-prune';
+
+
 const NO_DB = !process.env.MONGO_URL;
 
 describe('prune (needs MONGO_URL)', { skip: NO_DB && 'MONGO_URL not set' }, () => {

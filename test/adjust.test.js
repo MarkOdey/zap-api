@@ -6,6 +6,13 @@ import effect, { EFFECT_NAMES } from '../action/effect.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 
 import { after } from 'node:test';
+
+// Each test file runs in its own process and shares one MongoDB server, so they
+// would otherwise collide: a file that counts documents sees another file's
+// fixtures. MONGO_DB overrides the database taken from MONGO_URL, giving this
+// file a database of its own.
+process.env.MONGO_DB = 'zap-test-adjust';
+
 after(() => (process.env.MONGO_URL ? MongoConnexion.close() : undefined));
 
 describe('adjust: registry of adjustments', () => {
