@@ -6,6 +6,7 @@ import find from './find.js';
 import record from './record.js';
 import connect from './connect.js';
 import { probeStreams } from '../utils/ffprobe.js';
+import { loopArgs } from './montage.js';
 
 const MAX_DIM = Number(process.env.EFFECT_MAX_DIM || 1280);
 const PRESET = process.env.RENDER_PRESET || 'veryfast';
@@ -155,7 +156,7 @@ async function effect({ key, effect: name, ...options } = {}) {
     .join(',')
 
   const args = ['-y']
-  if (isStill) args.push('-loop', '1')
+  if (isStill) args.push(...loopArgs(doc.type))
   args.push('-i', doc.source, '-vf', videoChain)
 
   // Only touch audio if there is any; -map would fail on a silent clip.

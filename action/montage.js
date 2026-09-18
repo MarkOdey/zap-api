@@ -77,7 +77,14 @@ async function montage({ keys, from, count = 5, seconds = STILL_SECONDS, audio }
   // frame rate — concat refuses inputs that disagree on any of those.
   const args = ['-y'];
   docs.forEach(({ doc, kind }) => {
-    if (kind === 'image') args.push('-loop', '1', '-t', String(seconds));
+    // -loop belongs to the image2 demuxer, which handles jpg/png/webp. A GIF uses the
+    // gif demuxer, which has no such option and makes ffmpeg fail outright — but it
+    // does accept the generic -stream_loop. They are not interchangeable: -stream_loop
+    // on a still does not produce a continuous stream of frames, so a montage built
+    // entirely from it collapsed to a couple of seconds.
+    if (kind === 'image') {
+      args.push(...loopArgs(doc.type), '-t', String(seconds));
+    }
     args.push('-i', doc.source);
   });
 
@@ -139,6 +146,10 @@ async function montage({ keys, from, count = 5, seconds = STILL_SECONDS, audio }
   console.log(`montage: wrote ${outPath} (${(size / 1048576).toFixed(1)}MB in ${took.toFixed(1)}s)`);
   return { key: outPath, items: docs.length, seconds: took, bytes: size };
 }
+
+/** The right way to hold an image input open, by demuxer. */
+export const loopArgs = (type) =>
+  (type === 'image/gif' ? ['-stream_loop', '-1'] : ['-loop', '1']);
 
 /**
  * Collect keys by walking outgoing edges, breadth-first, without repeats.

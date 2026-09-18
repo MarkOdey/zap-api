@@ -10,6 +10,7 @@ import MongoConnexion from '../utils/MongoConnexion.js';
 import { SOUNDTRACK } from '../relation/statement.js';
 import { probeDuration } from '../utils/ffprobe.js';
 import { renderTextFrame } from '../utils/textFrame.js';
+import { loopArgs } from './montage.js';
 
 /** Long edge of the rendered video. Keeps output sane from 16MP stills. */
 const MAX_DIM = Number(process.env.RENDER_MAX_DIM || 1280);
@@ -103,9 +104,12 @@ async function render({ visual, audio, maxDim = MAX_DIM, background = 'black' } 
 
   const args = kind !== 'video'
     ? [
-      '-loop', '1', '-framerate', String(STILL_FPS), '-i', visualSource,
+      // The frame rate goes on the output, not with -framerate: that belongs to
+      // the image2 demuxer, which a GIF does not use.
+      ...loopArgs(kind === 'text' ? 'image/png' : visualDoc.type), '-i', visualSource,
       '-i', audioDoc.source,
       '-vf', filter,
+      '-r', String(STILL_FPS),
       '-c:v', 'libx264', '-preset', PRESET, '-tune', 'stillimage',
       '-c:a', 'aac', '-b:a', '192k',
       '-t', String(duration),
