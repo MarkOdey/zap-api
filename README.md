@@ -128,7 +128,11 @@ npm install
 | `RECENCY_FLOOR` | `0.1` | Lowest recency multiplier, so old media stays reachable |
 | `RECENCY_STRENGTH` | `1` | 0 selects on weight alone, ignoring age |
 | `TRAVERSAL_PROBABILITY` | `0.6` | How often playback follows an edge rather than drawing from the whole library |
-| `DATA_BUDGET_MB` | `1024` | Bytes of *generated* media to keep; uploads are never counted |
+| `DATA_BUDGET_MB` | `1024` | Bytes of machine-owned media to keep; uploads are never counted |
+| `INGEST_PER_FEED` | `5` | Items taken from each feed per poll |
+| `INGEST_MAX_CHARS` | `600` | Cap on the text kept per item |
+| `FEED_MIN_INTERVAL_MS` | `900000` | Shortest gap between feed polls |
+| `FEED_USER_AGENT` | `zap/1.0 …` | Sent when fetching feeds |
 | `EDGE_PRUNE_THRESHOLD` | `0.1` | Weight below which an associative edge is dropped |
 | `GENERATE_ENABLED` | `true` | Unattended generation; `false` disables it |
 | `GENERATE_INTERVAL_MS` | `30000` | How often it looks for something to do |
@@ -180,6 +184,8 @@ node index.js removeAll   # drop all documents from the data collection
 | Action | Description |
 |---|---|
 | `explore` | Scans `DATA_DIR`, validates against the document model, upserts into MongoDB. Run this first to populate the library. |
+| `subscribe` | Add, remove or list syndication feeds. |
+| `ingest` | Pull items from subscribed feeds into the library as text documents. |
 | `play` | Selects a weighted random media document and emits it to the client. |
 | `find` | Queries MongoDB for a document by key. |
 | `list` | Returns a page of the library as metadata only — no file contents. |
@@ -563,3 +569,32 @@ node index.js prune '{"dryRun":true,"budgetMb":30}' # try a tighter budget first
 Measured when this was written: 544MB of uploads, 64MB of generated media, growing about
 52MB a day at the default generation rate — so the 1GB default is roughly three weeks of
 output before anything is evicted.
+
+---
+
+## Feeds
+
+```bash
+node index.js subscribe '{"url":"https://feeds.bbci.co.uk/news/rss.xml"}'
+node index.js subscribe '{"list":true}'
+node index.js ingest '{"limit":3}'
+```
+
+Items become ordinary text documents, so everything downstream already works: the text
+player shows them, `speak` narrates them, and `render` turns headline plus narration into
+a video. None of that needed code specific to feeds.
+
+`ingest` is one of the strategies `generate` chooses from rather than having its own
+scheduler, so feeds are polled as part of the same queue as everything else — no more
+often than `FEED_MIN_INTERVAL_MS`, since feeds change on the order of minutes and polling
+harder is merely rude.
+
+**Only what a feed publishes for syndication is used** — headline, summary and link — and
+every document carries `sourceUrl` and `attribution`, so provenance travels with it.
+
+**Images are not fetched.** A feed offering an enclosure invites a reader to display it;
+downloading press photography and compositing it into generated videos is a different
+thing. The parser reads the image URL and `ingest` deliberately ignores it.
+
+Fetched documents are marked `origin`, which makes them machine-owned: `prune` may evict
+them under the data budget, the same as generated media. Uploads remain untouchable.

@@ -1,13 +1,13 @@
 import fs from 'fs/promises';
 
 import MongoConnexion from '../utils/MongoConnexion.js';
-import { validate } from '../model/document.js';
+import { validate, isMachineOwned } from '../model/document.js';
 import { HALF_LIFE_DAYS, RECENCY_FLOOR } from '../utils/selection.js';
 
 /**
- * Bytes of *generated* media to keep. Uploads are never counted and never
- * deleted — the budget applies only to what the machine made, so it cleans up
- * after itself and nothing you put in can be lost.
+ * Bytes of machine-owned media to keep — anything generated or fetched. Uploads
+ * are never counted and never deleted, so the machine cleans up after itself and
+ * nothing you put in can be lost.
  */
 // `??` not `||`: DATA_BUDGET_MB=0 is a legitimate setting meaning "keep no
 // generated media", and `||` would silently turn it into the default.
@@ -64,7 +64,9 @@ async function prune({ dryRun = false, budgetMb } = {}) {
       continue;
     }
 
-    if (!doc.generator) { originalBytes += size; continue; }
+    // Fetched content counts against the budget too: the machine acquired it, so
+    // the machine may reclaim it. Only uploads are untouchable.
+    if (!isMachineOwned(doc)) { originalBytes += size; continue; }
 
     const ageDays = (now - doc._id.getTimestamp().getTime()) / 86_400_000;
     const recency = Math.max(RECENCY_FLOOR, 2 ** (-ageDays / HALF_LIFE_DAYS));

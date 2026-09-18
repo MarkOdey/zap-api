@@ -20,7 +20,21 @@ export const FIELDS = {
   derivedFrom: { type: 'object', required: false, desc: 'Keys of the source documents it was generated from' },
   label:       { type: 'string', required: false, desc: 'Segment label from the segmentation model' },
   score:       { type: 'number', required: false, desc: 'Model confidence for the segment', min: 0, max: 1 },
+
+  // Set on documents fetched from elsewhere rather than uploaded or generated.
+  origin:      { type: 'string', required: false, desc: 'Where it came from, e.g. "rss"' },
+  sourceUrl:   { type: 'string', required: false, desc: 'The URL it was fetched from' },
+  attribution: { type: 'string', required: false, desc: 'Who published it' },
 };
+
+/**
+ * True if the machine acquired this rather than the user providing it — whether
+ * by generating it or fetching it. `prune` may evict these under the data budget;
+ * uploads are never touched.
+ */
+export function isMachineOwned(doc) {
+  return typeof doc?.generator === 'string' || typeof doc?.origin === 'string';
+}
 
 /** True if the document was produced by a vision action rather than indexed from disk. */
 export function isDerivative(doc) {
@@ -107,4 +121,4 @@ export function mediaKind(doc) {
   return null;
 }
 
-export default { FIELDS, REQUIRED, validate, normalize, mediaKind, isDerivative, derivationDepth };
+export default { FIELDS, REQUIRED, validate, normalize, mediaKind, isDerivative, derivationDepth, isMachineOwned };

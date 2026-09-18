@@ -20,6 +20,14 @@ const VIDEO_EFFECTS = ['speed', 'reverse', 'greyscale', 'colour', 'fade'];
 const STILL_EFFECTS = ['zoom', 'zoomout', 'pan', 'kenburns'];
 const ADJUSTMENTS = ['blur', 'greyscale', 'negate', 'colour', 'tint', 'gamma', 'posterize', 'bloom'];
 
+/**
+ * Feeds are polled as one of the strategies below rather than on their own timer,
+ * but not every 30 seconds — that would be rude to the publisher and pointless,
+ * since feeds change on the order of minutes.
+ */
+const FEED_MIN_INTERVAL_MS = Number(process.env.FEED_MIN_INTERVAL_MS || 15 * 60 * 1000);
+let lastIngest = 0;
+
 /** Pairs whose job failed, so a broken file is not retried every 30 seconds. */
 const failed = new Set();
 
@@ -62,6 +70,7 @@ export default async function generateTask() {
   if (usable.length === 0) return;
 
   const choice = usable[Math.floor(Math.random() * usable.length)];
+  if (choice.action === 'ingest') lastIngest = Date.now();
   lastQueued = queue.push(choice.action, choice.params).id;
   console.log(`generate: queued ${choice.action} ${JSON.stringify(choice.params)} (${choice.why})`);
 }
@@ -89,11 +98,17 @@ async function strategies(db, col, { images, videos, audio, texts }) {
   const pick = (list) => list[Math.floor(Math.random() * list.length)];
   const out = [];
 
-  // 1. A pairing someone actually made, not yet rendered — deliberate beats random.
+  // 1. Fresh material from subscribed feeds, if any and if it has been a while.
+  if (Date.now() - lastIngest > FEED_MIN_INTERVAL_MS) {
+    const feeds = await db.collection('feeds').countDocuments();
+    if (feeds > 0) out.push({ action: 'ingest', params: {}, why: 'feeds' });
+  }
+
+  // 2. A pairing someone actually made, not yet rendered — deliberate beats random.
   const linked = await unrenderedPair(db, col);
   if (linked) out.push({ action: 'render', params: linked, why: 'linked soundtrack' });
 
-  // 2. Text with no narration yet.
+  // 3. Text with no narration yet.
   for (const text of texts) {
     const narrated = await col.countDocuments({ generator: 'speak', derivedFrom: text.key });
     if (!narrated) {
@@ -102,7 +117,7 @@ async function strategies(db, col, { images, videos, audio, texts }) {
     }
   }
 
-  // 3. A still or a clip scored with a random track.
+  // 4. A still or a clip scored with a random track.
   if (audio.length && (images.length || videos.length)) {
     const visual = pick([...images, ...videos]);
     out.push({
@@ -112,7 +127,7 @@ async function strategies(db, col, { images, videos, audio, texts }) {
     });
   }
 
-  // 4. A clip put through an effect.
+  // 5. A clip put through an effect.
   if (videos.length) {
     out.push({
       action: 'effect',
@@ -121,7 +136,7 @@ async function strategies(db, col, { images, videos, audio, texts }) {
     });
   }
 
-  // 5. A still animated, or a shape cut out of it.
+  // 6. A still animated, or a shape cut out of it.
   if (images.length) {
     const image = pick(images);
     out.push({
@@ -137,7 +152,7 @@ async function strategies(db, col, { images, videos, audio, texts }) {
     });
   }
 
-  // 6. Several items joined, scored if there is anything to score them with.
+  // 7. Several items joined, scored if there is anything to score them with.
   const joinable = [...images, ...videos];
   if (joinable.length >= 3) {
     const params = { keys: joinable.slice(0, 4).map(d => d.key), seconds: 2 };

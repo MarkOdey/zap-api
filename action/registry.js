@@ -7,6 +7,7 @@ import disconnect from './disconnect.js';
 import explore from './explore.js';
 import find from './find.js';
 import help from './help.js';
+import ingest from './ingest.js';
 import isolate from './isolate.js';
 import list from './list.js';
 import normalize from './normalize.js';
@@ -14,6 +15,7 @@ import effect from './effect.js';
 import montage from './montage.js';
 import render from './render.js';
 import speak from './speak.js';
+import subscribe from './subscribe.js';
 import play from './play.js';
 import prune from './prune.js';
 import record from './record.js';
@@ -46,6 +48,7 @@ import upload from './upload.js';
 // reimplements it with ffmpeg.
 export const ACTIONS = {
   explore:    { fn: explore,    queueable: true,  params: [] },
+  ingest:     { fn: ingest,     queueable: true,  params: ['url', 'limit'] },
   isolate:    { fn: isolate,    queueable: true,  subprocess: true, params: ['key', 'label', 'all'] },
   compose:    { fn: compose,    queueable: true,  subprocess: true, params: ['from', 'to', 'label', 'scale', 'x', 'y', 'opacity'] },
   render:     { fn: render,     queueable: true,  params: ['visual', 'audio', 'maxDim', 'background'] },
@@ -58,6 +61,7 @@ export const ACTIONS = {
   crop:       { fn: crop,       queueable: true,  params: ['key', 'start', 'duration'] },
 
   find:       { fn: find,       queueable: false, params: ['key'] },
+  subscribe:  { fn: subscribe,  queueable: false, params: ['url', 'remove', 'list'] },
   // Called through a lambda, not referenced directly: help.js imports this module
   // to list the actions, so evaluating `help` here while that import is still in
   // flight throws "Cannot access 'help' before initialization". The lambda defers
