@@ -8,6 +8,11 @@ services:
 
   api:
     build: .
+    # Come back after an out-of-memory kill rather than staying down.
+    restart: unless-stopped
+    # Bound the process so a runaway model load fails one container instead of
+    # taking the whole Docker VM with it. Inference peaks around 4.5GB.
+    mem_limit: 5g
     ports:
       - "3000:3000"
     environment:

@@ -102,6 +102,7 @@ npm install
 | `MONGO_DB` | from `MONGO_URL` | Database name; overrides the path in the connection string |
 | `MODEL_CACHE_DIR` | `./.models` | Where Hugging Face model weights are cached |
 | `MODEL_DTYPE` | `fp32` | Model quantization; `q8` is faster but degrades masks badly |
+| `MODEL_IDLE_MS` | `90000` | Release the loaded model after this long unused |
 | `INFERENCE_MAX_DIM` | `1024` | Longest edge fed to the model; masks are scaled back up |
 | `SEGMENTATION_MODEL` | `Xenova/detr-resnet-50-panoptic` | Segmentation model |
 | `MAX_DERIVATION_DEPTH` | `3` | Refuse to compose onto an image this many generations deep |
@@ -462,3 +463,24 @@ now the first strategy above. Two tasks feeding one concurrency-1 queue would on
 taken turns.
 
 Run `help` in the terminal to see every action and its arguments.
+
+---
+
+## Memory
+
+Inference is the memory ceiling for the whole service. A loaded fp32 segmentation
+pipeline holds about **4.3GB**, and onnxruntime does not give that back when the job
+finishes — the arena stays allocated for as long as the pipeline is cached.
+
+`utils/models.js` therefore keeps **one** pipeline resident at a time and releases it once
+idle (`MODEL_IDLE_MS`). Loading a second model evicts the first. Before that, caching
+segmentation and text-to-speech together exceeded the container's memory and the kernel
+killed the process mid-job; steady state is now ~665MB with peaks around 4.3GB.
+
+Reloading a model costs a few seconds. The queue runs one job at a time with gaps between
+them, so that is a far better trade than dying.
+
+`docker-compose.yml` sets `mem_limit: 5g` so a runaway load fails one container rather
+than the whole Docker VM, and `restart: unless-stopped` so it comes back rather than
+staying down. Check `docker inspect <container> --format '{{.State.OOMKilled}}'` if the
+API disappears.
