@@ -1,4 +1,36 @@
+# Dependencies
 node_modules/
-package-lock.json
+
+# The media library. These are your files, not the project's — they were tracked
+# by accident until they grew to 179MB and started turning up in unrelated commits.
 data/
+
+# Model weights, downloaded from the Hugging Face Hub on first use (~200MB).
 .models/
+
+# Environment and secrets. local.env.json is listed by name because a file called
+# that will eventually hold credentials, whether or not it does today.
+.env
+.env.*
+local.env.json
+*.local.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# Scratch files from debugging sessions
+*.tmp.mjs
+*.tmp.js
+mediatest-*/
+removetest-*/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# package-lock.json is deliberately NOT ignored: the Dockerfile copies package*.json
+# and runs npm install, so the lockfile is what makes those builds reproducible.
