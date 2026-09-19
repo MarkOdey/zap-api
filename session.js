@@ -6,6 +6,7 @@ import appreciate from "./action/appreciate.js";
 import { ACTIONS, COMMANDS, describe } from "./action/registry.js";
 import queue from "./utils/queue.js";
 import { mountMedia } from "./utils/mediaRoute.js";
+import { mountBroadcast, current as currentBroadcast } from "./utils/broadcast.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -13,6 +14,10 @@ const PORT = process.env.PORT || 3000;
 // its own port and the express app was never attached, so it served nothing.
 const app = express();
 mountMedia(app);
+mountBroadcast(app);
+
+/** Live broadcast status, or a stopped snapshot. */
+const broadcastState = () => currentBroadcast()?.status() ?? { live: false };
 
 const server = http.createServer(app);
 
@@ -61,6 +66,7 @@ queue.on("change", (job) => {
 // no job is moving.
 setInterval(() => {
   if (cognition) io.emit("queue:tasks", cognition.status());
+  io.emit("broadcast:state", broadcastState());
 }, 2000).unref();
 
 io.on("connection", function (socket) {
@@ -69,6 +75,7 @@ io.on("connection", function (socket) {
 
   socket.emit("queue:state", status());
   socket.emit("commands", describe());
+  socket.emit("broadcast:state", broadcastState());
 
   const session = new Session(socket);
   session.update();

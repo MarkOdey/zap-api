@@ -86,11 +86,13 @@ true }})` yields the video-only-with-audio draw; all existing tests still pass.
 
 ---
 
-## Phase 1 — Live RTMP broadcast + HLS preview (engine)
+## Phase 1 — Live RTMP broadcast + HLS preview (engine) ✅ DONE
 
-The core of feature 1. Depends on Phase 0.
+The core of feature 1. Depends on Phase 0. **Implemented; pure logic green
+(8 broadcast tests). The live ffmpeg→RTMP path needs your real environment to
+validate — see the note at the end of this phase.**
 
-- [ ] **`utils/broadcast.js`** (new) — the pipeline, with an injectable spawn seam:
+- [x] **`utils/broadcast.js`** (new) — the pipeline, with an injectable spawn seam:
   - Persistent **encoder** ffmpeg: `-f mpegts -i pipe:0 -c:v libx264 -preset
     veryfast -g <2*fps> -c:a aac -f flv <RTMP_URL>`, plus `-fflags +genpts`.
   - Per-clip **normaliser**: transcode selected clip → canonical MPEG-TS
@@ -129,6 +131,18 @@ RTMP sink, `broadcast start` produces a continuous stream of audio-bearing video
 with no drop between clips; `/broadcast/live.m3u8` plays the same feed;
 `broadcast stop` tears down cleanly; a library with no audio-bearing video shows
 the filler rather than crashing.
+
+**What was built vs. what needs live validation.** Built: `utils/broadcast.js`
+(encoder/normaliser/filler arg builders, the on-air audio guard, video+audio
+selection reusing Phase 0's `match`, the feed loop, key masking, HLS mount),
+`action/broadcast.js`, registry entry, `session.js` `broadcast:state`, README env
+docs. Unit-tested (fake ffmpeg): masking, all three arg builders, lifecycle,
+audio-guard skip. **Needs your environment** (has ffmpeg + an RTMP sink): the
+real MPEG-TS-through-stdin timestamp continuity across clips is the known risk
+(design §1.8); if a sink dislikes the copied discontinuities, set
+`BROADCAST_REENCODE=true`. `segmentsAhead` from the design is reported as
+`segments` (count aired) — a true look-ahead buffer was not needed by the
+stdin-pipe approach.
 
 ---
 

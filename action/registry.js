@@ -1,6 +1,7 @@
 import adjust from './adjust.js';
 import analyse from './analyse.js';
 import appreciate from './appreciate.js';
+import broadcast from './broadcast.js';
 import compose from './compose.js';
 import connect from './connect.js';
 import crop from './crop.js';
@@ -65,6 +66,8 @@ export const ACTIONS = {
   crop:       { fn: crop,       queueable: true,  params: ['key', 'start', 'duration'] },
 
   find:       { fn: find,       queueable: false, params: ['key'] },
+  // Owns a long-lived encoder process, so it runs inline (not through the queue).
+  broadcast:  { fn: broadcast,  queueable: false, params: ['op', 'url', 'key', 'ingest'] },
   subscribe:  { fn: subscribe,  queueable: false, params: ['url', 'remove', 'list'] },
   // Called through a lambda, not referenced directly: help.js imports this module
   // to list the actions, so evaluating `help` here while that import is still in
