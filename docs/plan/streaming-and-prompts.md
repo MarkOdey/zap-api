@@ -162,11 +162,14 @@ monitor from the browser; key is never exposed client-side.
 
 ---
 
-## Phase 3 — Mission model, local LLM agent & prompt bank (engine)
+## Phase 3 — Mission model, local LLM agent & prompt bank (engine) ✅ DONE
 
 The core of feature 2. Independent of Phases 0–2. The generator is a **local LLM
 agent via Ollama** (primary) with a runtime-editable bank and a template as
-fallbacks — see design §2.4/§2.4a/§2.4b.
+fallbacks — see design §2.4/§2.4a/§2.4b. **Implemented; pure logic green
+(28 new tests; full api suite 231 pass / 0 fail). Live Ollama + Mongo paths need
+your environment. Also includes the `plays` log + recurrence (design §2.2b), since
+the theme depends on it.**
 
 - [ ] **`model/mission.js`** (new) — schema + `validate` / `normalize`
   (`key, kind, prompt, terms[], accepts[], origin, source, status, responses[],

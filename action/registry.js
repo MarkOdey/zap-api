@@ -12,6 +12,9 @@ import help from './help.js';
 import ingest from './ingest.js';
 import isolate from './isolate.js';
 import list from './list.js';
+import mission from './mission.js';
+import prompt from './prompt.js';
+import theme from './theme.js';
 import normalize from './normalize.js';
 import effect from './effect.js';
 import montage from './montage.js';
@@ -69,6 +72,9 @@ export const ACTIONS = {
   // Owns a long-lived encoder process, so it runs inline (not through the queue).
   broadcast:  { fn: broadcast,  queueable: false, params: ['op', 'url', 'key', 'ingest'] },
   subscribe:  { fn: subscribe,  queueable: false, params: ['url', 'remove', 'list'] },
+  mission:    { fn: mission,    queueable: false, params: ['op', 'key'] },
+  prompt:     { fn: prompt,     queueable: false, params: ['op', 'id', 'text', 'accepts', 'terms', 'enabled'] },
+  theme:      { fn: theme,      queueable: false, params: ['op', 'schedule', 'domains'] },
   // Called through a lambda, not referenced directly: help.js imports this module
   // to list the actions, so evaluating `help` here while that import is still in
   // flight throws "Cannot access 'help' before initialization". The lambda defers

@@ -8,6 +8,8 @@ import exploreTask from './cognition/explore.js';
 import relateTask  from './cognition/relate.js';
 import pruneTask   from './cognition/prune.js';
 import generateTask from './cognition/generate.js';
+import promptTask  from './cognition/prompt.js';
+import themeTask   from './cognition/theme.js';
 
 // Register actions that connected sessions will run
 Session.addAction(play);
@@ -51,6 +53,9 @@ cognition.register('relate',  relateTask,  30 * 1000);
 cognition.register('prune',   pruneTask,  120 * 1000);
 // Ticks often, but only acts when the queue is completely idle — see generate.js.
 cognition.register('generate', generateTask, Number(process.env.GENERATE_INTERVAL_MS || 30 * 1000));
+// Keep a small pool of open missions; regenerate the theme when it expires.
+cognition.register('prompt',  promptTask, Number(process.env.MISSION_INTERVAL_MS || 60 * 1000));
+cognition.register('theme',   themeTask,  Number(process.env.THEME_INTERVAL_MS || 60 * 60 * 1000));
 cognition.start();
 
 Session.attachCognition(cognition);

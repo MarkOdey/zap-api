@@ -3,6 +3,7 @@ import { mediaUrl } from '../utils/mediaRoute.js';
 import { SOUNDTRACK } from '../relation/statement.js';
 import { selectionPipeline, fallbackPipeline, traversalPipeline, TRAVERSAL_PROBABILITY } from '../utils/selection.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
+import { fromPlay } from '../model/play.js';
 import update from './update.js';
 
 async function play(session) {
@@ -117,10 +118,18 @@ async function play(session) {
   session.socket.emit("play", { ...data, src, audio });
 
   // Wait for playback completion signal (resolve/reject)
-  await new Promise((resolve) => {
+  const outcome = await new Promise((resolve) => {
     session.socket.once("resolve", () => resolve("resolve"));
     session.socket.once("reject",  () => resolve("reject"));
   });
+
+  // Log the play for the recurrence theme signal: what aired, when, and whether it
+  // was enjoyed. Best-effort — never let logging break playback.
+  try {
+    await db.collection("plays").insertOne(fromPlay(data, { resolved: outcome === "resolve" }));
+  } catch (err) {
+    console.warn("play: could not log play —", err.message);
+  }
 }
 
 export default play;
