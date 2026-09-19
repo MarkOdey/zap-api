@@ -26,6 +26,7 @@ import play from './play.js';
 import prune from './prune.js';
 import record from './record.js';
 import remove from './remove.js';
+import respond from './respond.js';
 import removeAll from './removeAll.js';
 import traverse from './traverse.js';
 import update from './update.js';
@@ -75,6 +76,7 @@ export const ACTIONS = {
   mission:    { fn: mission,    queueable: false, params: ['op', 'key'] },
   prompt:     { fn: prompt,     queueable: false, params: ['op', 'id', 'text', 'accepts', 'terms', 'enabled'] },
   theme:      { fn: theme,      queueable: false, params: ['op', 'schedule', 'domains'] },
+  respond:    { fn: respond,    queueable: false, params: ['missionKey', 'text', 'key'] },
   // Called through a lambda, not referenced directly: help.js imports this module
   // to list the actions, so evaluating `help` here while that import is still in
   // flight throws "Cannot access 'help' before initialization". The lambda defers

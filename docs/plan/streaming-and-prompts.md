@@ -248,9 +248,11 @@ context.
 
 ---
 
-## Phase 4 — Answering missions & closing the lexical loop (engine)
+## Phase 4 — Answering missions & closing the lexical loop (engine) ✅ DONE
 
-Depends on Phase 3.
+Depends on Phase 3. **Implemented; `rankItemsByTerms` tested, respond covered by a
+DB-guarded integration test (skips without `MONGO_URL`); full api suite 233 pass /
+0 fail.**
 
 - [ ] **`action/respond.js`** (new) + registry — `{ missionKey, text? | upload? }`:
   1. Ingest answer into `data` (reuse `action/upload.js` for image/video, a text

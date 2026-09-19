@@ -7,6 +7,9 @@ import { ACTIONS, COMMANDS, describe } from "./action/registry.js";
 import queue from "./utils/queue.js";
 import { mountMedia } from "./utils/mediaRoute.js";
 import { mountBroadcast, current as currentBroadcast } from "./utils/broadcast.js";
+import MongoConnexion from "./utils/MongoConnexion.js";
+import respond from "./action/respond.js";
+import { getCurrentTheme } from "./missions/themeStore.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -18,6 +21,27 @@ mountBroadcast(app);
 
 /** Live broadcast status, or a stopped snapshot. */
 const broadcastState = () => currentBroadcast()?.status() ?? { live: false };
+
+/** The current open mission (newest), or null. */
+async function missionState() {
+  try {
+    const db = await MongoConnexion.db();
+    const mission = await db.collection("missions")
+      .findOne({ status: "open" }, { projection: { _id: 0 }, sort: { createdAt: -1 } });
+    return { mission: mission ?? null };
+  } catch {
+    return { mission: null };
+  }
+}
+
+/** The current time-aware theme, or null. */
+async function themeState() {
+  try {
+    return { theme: await getCurrentTheme() };
+  } catch {
+    return { theme: null };
+  }
+}
 
 const server = http.createServer(app);
 
@@ -69,6 +93,12 @@ setInterval(() => {
   io.emit("broadcast:state", broadcastState());
 }, 2000).unref();
 
+// Missions and the theme change slowly, so push them on a gentler beat.
+setInterval(async () => {
+  io.emit("mission:state", await missionState());
+  io.emit("theme:state", await themeState());
+}, 15000).unref();
+
 io.on("connection", function (socket) {
   console.log("user connected:", socket.id);
   socket.emit("connected");
@@ -76,6 +106,8 @@ io.on("connection", function (socket) {
   socket.emit("queue:state", status());
   socket.emit("commands", describe());
   socket.emit("broadcast:state", broadcastState());
+  missionState().then((s) => socket.emit("mission:state", s));
+  themeState().then((s) => socket.emit("theme:state", s));
 
   const session = new Session(socket);
   session.update();
@@ -252,6 +284,23 @@ function Session(socket) {
 
   socket.on("like", () => appreciateCurrent(+0.1, "like"));
   socket.on("dislike", () => appreciateCurrent(-0.1, "dislike"));
+
+  // Answer a mission with text or an already-uploaded image/video key.
+  socket.on("mission:answer", async (data, ack) => {
+    let outcome;
+    try {
+      const parsed = typeof data === "string" ? JSON.parse(data) : (data ?? {});
+      const result = await respond(parsed);
+      outcome = { ok: true, ...result };
+    } catch (err) {
+      console.error("mission:answer error:", err.message);
+      outcome = { ok: false, error: err.message };
+    }
+    // Push the refreshed open mission to everyone.
+    io.emit("mission:state", await missionState());
+    if (typeof ack === "function") ack(outcome);
+    else socket.emit("mission:answered", outcome);
+  });
 
   // Acks as well as emitting, so a client uploading several files can await each
   // one. `upload:done` alone carries no correlation, so two in flight would be

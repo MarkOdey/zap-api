@@ -118,7 +118,11 @@ async function strategies(db, col, { images, videos, audio, texts }) {
   // 1. Fresh material from subscribed feeds, if any and if it has been a while.
   if (Date.now() - lastIngest > FEED_MIN_INTERVAL_MS) {
     const feeds = await db.collection('feeds').countDocuments();
-    if (feeds > 0) out.push({ action: 'ingest', params: {}, why: 'feeds' });
+    if (feeds > 0) {
+      // Bias ingest toward what the user is being prompted about and the season.
+      const terms = await currentTerms(db);
+      out.push({ action: 'ingest', params: terms.length ? { terms } : {}, why: terms.length ? 'feeds (term-biased)' : 'feeds' });
+    }
   }
 
   // 2. A pairing someone actually made, not yet rendered — deliberate beats random.
@@ -197,6 +201,24 @@ async function strategies(db, col, { images, videos, audio, texts }) {
   }
 
   return out;
+}
+
+/**
+ * Terms the system is currently focused on: open-mission terms plus the current
+ * theme's lexicon. Used to steer feed ingest toward relevant/seasonal media.
+ */
+async function currentTerms(db) {
+  const terms = new Set();
+  try {
+    const missions = await db.collection('missions')
+      .find({ status: 'open' }, { projection: { terms: 1 } }).limit(5).toArray();
+    for (const m of missions) for (const t of m.terms ?? []) terms.add(t);
+
+    const [theme] = await db.collection('themes')
+      .find({ expiresAt: { $gt: new Date() } }).sort({ generatedAt: -1 }).limit(1).toArray();
+    for (const t of theme?.terms ?? []) terms.add(t);
+  } catch { /* no focus terms — plain ingest */ }
+  return [...terms].slice(0, 12);
 }
 
 /** The first soundtrack pairing with no rendered result. */
