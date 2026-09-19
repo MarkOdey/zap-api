@@ -1,7 +1,10 @@
 # Implementation plan: streaming & agent-built prompts
 
-Status: **approved-decisions, implementation not started.** Execution mode:
-**plan only — wait for explicit go-ahead before writing code** (per sign-off).
+Status: **all phases implemented (0–5) on `claude/streaming-agent-prompts-edy4hq`
+in both repos, for review.** Pure/unit logic is green (api suite 233 pass / 0 fail,
+cli 52 pass); DB-backed tests skip without `MONGO_URL`. The live integration paths
+(ffmpeg→RTMP, Ollama, MongoDB, the hourly loop) need your environment to validate —
+each phase's "needs your environment" note says what.
 
 Companion documents:
 - Design (engine): `docs/design/streaming-and-prompts.md`
