@@ -23,13 +23,16 @@ Companion documents:
 7. **Prompt bank:** a **runtime-editable `prompts` collection** managed from the
    client (seeded with a starter set), not a code file.
 8. **Time-aware themes:** an **hourly** agent turns local calendar facts (season /
-   nearby holidays / time of day) **plus a scheduled domain** (history, philosophy,
-   art, science, love, religion, controversial, seasonal, …) into a themed lexicon
-   that steers missions and the media-finding loop; theme-bias in playback selection
-   is optional and off by default. The domain palette and the hour→domain schedule
-   are runtime-editable, with sensitive domains (religion, controversial) framed for
-   reflection and scheduled to quieter hours. `llama3.2` supplies the words; the
-   calendar + schedule supply the anchor.
+   nearby holidays / time of day) into a themed lexicon that steers missions and the
+   media-finding loop; theme-bias in playback selection is optional and off by
+   default. **Primary steering (once history exists) is recurrence** — the lexicon
+   of what actually played at analogous times (yesterday this hour, same weekday
+   last week, same date last year), weighted by enjoyment; this needs a small
+   `plays` log. The **domain palette + hour→domain schedule** (history, philosophy,
+   art, science, love, religion, controversial, seasonal, …; runtime-editable) are
+   the **cold-start fallback** and holiday flavour, with sensitive domains
+   (religion, controversial) framed for reflection at quieter hours. `llama3.2`
+   supplies the words; recurrence + calendar + schedule supply the anchor.
 
 ## Conventions
 
@@ -167,13 +170,23 @@ fallbacks — see design §2.4/§2.4a/§2.4b.
   weekday/weekend; `love` in the evenings/Valentine's, sensitive domains `religion`
   + `controversial` framed for reflection and scheduled to quieter hours). Both
   overridable at runtime via a stored config.
+- [ ] **`plays` log** — `model/play.js` (record shape `{ key, terms, resolved, at,
+  hour, weekday, dayOfYear }`) + append a record from `action/play.js` as each item
+  airs (terms = doc `labels`/`subjects`; `resolved` from the resolve/reject signal).
+  Append-only, prunable by age.
+- [ ] **`utils/recurrence.js`** (new, pure over a query fn) — given `now`, aggregate
+  a weighted term lexicon from plays in analogous windows (yesterday ±1h, same
+  weekday last week ±1h, same date last month/last year ±N days), weighting by
+  window match, frequency, and `resolved`.
 - [ ] **`model/theme.js`** (incl. `domain`) + **`missions/ollama.js`
-  `generateTheme({calendar, domain})`** — hourly LLM call expands the picked domain
-  + calendar facts into `{ label, terms[] }` (strict JSON, validated, calendar/
-  domain-only fallback). Stored in a `themes` collection (current + history).
+  `generateTheme({recurrence, domain, calendar})`** — hourly LLM call expands the
+  recurrence lexicon (primary) + picked domain + calendar facts into `{ label,
+  terms[] }` (strict JSON, validated, calendar/domain-only fallback). Stored in a
+  `themes` collection (current + history).
 - [ ] **`cognition/theme.js`** (new) + **`index.js`** — hourly task
-  (`THEME_INTERVAL_MS`): pick a domain from the schedule (seasonal pre-empts near a
-  holiday), generate the theme, feed its terms into the mission steering context.
+  (`THEME_INTERVAL_MS`): build recurrence context; if history is thin pick a domain
+  from the schedule (seasonal pre-empts near a holiday); generate the theme; feed
+  its terms into the mission steering context.
 - [ ] **`action/theme.js`** (new) + registry — `{ op: 'get'|'regenerate' }` plus
   `{ op: 'getSchedule'|'setSchedule'|'setDomains' }` for runtime editing.
 - [ ] **`action/prompt.js`** (new) + registry — bank CRUD:
@@ -190,7 +203,8 @@ fallbacks — see design §2.4/§2.4a/§2.4b.
 **Tests:** `test/vocabulary.test.js`; `test/calendar.test.js` (season/holiday-
 proximity facts for fixed dates, incl. a near-Halloween date); `test/domains.test.js`
 (schedule picks the right domain set for an hour; seasonal pre-empts near a holiday;
-runtime override applies); `test/mission.test.js` (model + bank/template generators
+runtime override applies); `test/recurrence.test.js` (analogous-window queries and
+weighted aggregation over a synthetic play log; enjoyed plays outweigh skipped); `test/mission.test.js` (model + bank/template generators
 + Ollama JSON parse/validate with the HTTP seam mocked + fallback chain);
 `test/theme.test.js` (domain+calendar prompt shaping, theme JSON parse/validate +
 fallback); `test/prompt.test.js` (bank CRUD + seed idempotency).
@@ -198,10 +212,11 @@ fallback); `test/prompt.test.js` (bank CRUD + seed idempotency).
 **Acceptance:** with Ollama running, `mission generate` yields a well-formed, broad
 open-ended mission carrying its lexical terms; with Ollama stopped, it falls back
 to the bank and still produces one; the cognition task keeps a small pool of open
-missions without repeating recent ones. The hourly theme task picks a domain
-appropriate to the hour (art in the afternoon, philosophy late evening), pre-empts
-with seasonal near a holiday, produces a matching lexicon, and that lexicon appears
-in the mission steering context.
+missions without repeating recent ones. Plays are logged as items air; the hourly
+theme task, once a play log exists, anchors the theme on the recurrence lexicon
+(what was played/enjoyed at analogous times) and falls back to the scheduled domain
++ calendar at cold start; the resulting lexicon appears in the mission steering
+context.
 
 ---
 
@@ -291,16 +306,22 @@ The two tracks are independent and could proceed in parallel, but per the
 7. **Holiday dataset scope** — start with a small fixed-date set (Halloween,
    Christmas, New Year, Valentine's, etc.) + season/time-of-day; movable holidays
    (Easter, Thanksgiving) added later. Confirm the starter set is enough.
-8. **Domain palette & default schedule** — starter domains: history, philosophy,
+8. **Domain palette & fallback schedule** — starter domains: history, philosophy,
    art, science, nature, music, literature, culture, love, religion, controversial,
-   seasonal. A proposed default schedule: mornings nature/science + light seasonal,
-   afternoons art/history/culture, evenings philosophy/literature/**love**, late
-   night **religion**/controversial (reflective/quiet hours); seasonal pre-empts
-   near holidays. Confirm the palette and the rough shape.
+   seasonal. The schedule is now the **cold-start fallback** (recurrence leads once
+   history exists), so its exact shape matters less; proposed default: mornings
+   nature/science + light seasonal, afternoons art/history/culture, evenings
+   philosophy/literature/**love**, late night **religion**/controversial; seasonal
+   pre-empts near holidays. Confirm the palette; the shape can stay rough.
 9. **Sensitive domains (`religion`, `controversial`)** — enabled and scheduled to
    quieter/reflective hours by default; `religion` framed respectfully and
    comparatively (spirituality, ritual, tradition — not proselytizing or
    disparaging), `controversial` as reflective debate; the deny-list still bars
    harmful content. Keep both on, restrict their hours further, or drop either?
+10. **Recurrence windows & weights** — which analogous windows and how they're
+   weighted: default yesterday ±1h (highest), same weekday last week ±1h, same date
+   last month ±2d, same date last year ±3d (lowest), enjoyed plays ~2× skipped.
+   Also how long to keep the `plays` log (default ~400 days, to cover last-year).
+   Confirm or adjust.
 
 None of these block starting Phase 0; they can be settled as each phase lands.

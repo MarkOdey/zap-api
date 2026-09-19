@@ -279,8 +279,38 @@ domain.
   calendarContext, generatedAt, expiresAt }`. One current theme at a time; history
   kept for inspection.
 - **`cognition/theme.js`** (new) — scheduled hourly (`THEME_INTERVAL_MS`); when the
-  current theme is missing or expired, choose a domain from the schedule and
-  regenerate. Registered in `index.js`.
+  current theme is missing or expired, assemble the context (recurrence first —
+  §2.2b — then the scheduled domain and calendar), generate, store. Registered in
+  `index.js`.
+
+### 2.2b Recurrence — what played at analogous times (the primary anchor)
+
+Rather than trust a hand-set hour→domain schedule, the strongest steering signal is
+the system's **own history**: the lexicon of what actually played at *analogous*
+moments — yesterday this hour, the same weekday last week, the same date last
+month and last year. If last October 31st was full of pumpkins and last Sunday
+morning was landscapes, this year's matching slot should lean the same way, learned
+rather than declared.
+
+- **Play history (new dependency).** A `plays` collection records each item as it
+  airs: `{ key, terms, resolved, at, hour, weekday, dayOfYear }`, written from
+  `action/play.js` (the terms are the doc's `labels`/`subjects`; `resolved` marks
+  whether it was liked/finished vs skipped). Small, append-only, prunable by age.
+  This is the one new piece of plumbing recurrence needs.
+- **`utils/recurrence.js`** (new) — given `now`, query plays in analogous windows
+  (yesterday ±1h, same weekday last week ±1h, same date last month/last year ±N
+  days) and aggregate a **weighted term list**, weighting by how well the window
+  matches (same-hour > same-weekday > same-date-last-year), by frequency, and by
+  `resolved` (what was enjoyed at that time counts more than what was skipped).
+- **How it feeds the theme.** The recurrence lexicon is the **primary** context
+  handed to `generateTheme`: "at this time you've tended toward *{these terms}* —
+  give a fitting theme label and lexicon." The scheduled domain (§2.2a) and
+  calendar become **fallbacks / flavour**: used to pick a domain when history is
+  thin, and always in play near a holiday. So the hour→domain schedule matters most
+  at **cold start** (no history yet) and fades as the log fills.
+- **Graceful cold start.** No/low history ⇒ fall back to schedule + calendar
+  exactly as §2.2a describes, so the feature works from day one and gets more
+  personal over weeks and seasons.
 
 **What the theme steers** (this is the "use that lexicon to find media" part):
 
@@ -419,16 +449,19 @@ seeds**:
 
 New: `model/mission.js`, `model/theme.js` (theme incl. `domain`), `missions/
 domains.js` (default domain palette — incl. `love` and `religion` — + hourly
-`themeSchedule`, both runtime-overridable), `utils/vocabulary.js`, `utils/calendar.js` (local date/season/
-holiday facts), `missions/generator.js` (interface + fallback chain, incl.
-`generateTheme({calendar, domain})`), `missions/ollama.js`, `missions/bank.js`,
-`missions/template.js`, `utils/ollama.js` (thin HTTP client), `cognition/prompt.js`,
-`cognition/theme.js` (hourly: pick domain from schedule, then generate),
-`action/mission.js` (list / get / generate / dismiss), `action/prompt.js` (bank
-CRUD + seed), `action/theme.js` (get / regenerate current theme; get/set the
-domains + schedule), `action/respond.js`.
+`themeSchedule`, both runtime-overridable), `model/play.js` (play-log shape),
+`utils/vocabulary.js`, `utils/calendar.js` (local date/season/holiday facts),
+`utils/recurrence.js` (aggregate the lexicon of plays at analogous times),
+`missions/generator.js` (interface + fallback chain, incl.
+`generateTheme({recurrence, domain, calendar})`), `missions/ollama.js`,
+`missions/bank.js`, `missions/template.js`, `utils/ollama.js` (thin HTTP client),
+`cognition/prompt.js`, `cognition/theme.js` (hourly: recurrence first, then domain
++ calendar, then generate), `action/mission.js` (list / get / generate / dismiss),
+`action/prompt.js` (bank CRUD + seed), `action/theme.js` (get / regenerate current
+theme; get/set the domains + schedule), `action/respond.js`.
 
-Edited: `action/registry.js` (register `mission`, `prompt`, `theme`, `respond`),
+Edited: `action/play.js` (append a `plays` record as each item airs),
+`action/registry.js` (register `mission`, `prompt`, `theme`, `respond`),
 `index.js` (register the `prompt` and `theme` cognition tasks), `session.js`
 (emit `mission:state` + `theme:state`, handle `mission:answer`),
 `utils/selection.js` (optional `THEME_BIAS` score boost), optionally
@@ -492,14 +525,16 @@ Each phase is independently reviewable and independently useful.
    never stalls. §2.4.
 7. **Prompt bank authoring:** a **runtime-editable `prompts` collection** managed
    from the client (seeded with a starter set), not a code file. §2.4a.
-8. **Time-aware themes:** an **hourly** agent turns local calendar facts
-   (season / nearby holidays / time of day) **plus a scheduled domain** (history,
-   philosophy, art, science, love, religion, controversial, seasonal, …) into a
-   themed **lexicon** that steers missions and the media-finding loop; optional
-   flagged theme-bias in selection. The domain palette and the hour→domain schedule
-   are runtime-editable; sensitive domains (`religion`, `controversial`) are framed
-   for reflection and scheduled to quieter hours. Calendar facts are local; the LLM
-   supplies the words. §2.2a.
+8. **Time-aware themes:** an **hourly** agent produces a themed **lexicon** that
+   steers missions and the media-finding loop (optional flagged theme-bias in
+   selection). Its **primary** input, once history exists, is **recurrence** — the
+   lexicon of what actually played at analogous times (yesterday this hour, same
+   weekday last week, same date last year), weighted by how much it was enjoyed;
+   this needs a small `plays` log. The **domain palette + hour→domain schedule**
+   (history, philosophy, art, science, love, religion, controversial, seasonal, …;
+   runtime-editable) are the **cold-start fallback** and holiday flavour. Sensitive
+   domains (`religion`, `controversial`) are framed for reflection and scheduled to
+   quieter hours. Calendar facts are local; the LLM supplies the words. §2.2a/§2.2b.
 
 The concrete build order and task breakdown for these decisions is in
 `docs/plan/streaming-and-prompts.md`.
