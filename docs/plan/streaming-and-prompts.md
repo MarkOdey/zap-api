@@ -24,11 +24,12 @@ Companion documents:
    client (seeded with a starter set), not a code file.
 8. **Time-aware themes:** an **hourly** agent turns local calendar facts (season /
    nearby holidays / time of day) **plus a scheduled domain** (history, philosophy,
-   art, science, controversial, seasonal, …) into a themed lexicon that steers
-   missions and the media-finding loop; theme-bias in playback selection is
-   optional and off by default. The domain palette and the hour→domain schedule are
-   runtime-editable, with heavier/controversial domains scheduled to later hours.
-   `llama3.2` supplies the words; the calendar + schedule supply the anchor.
+   art, science, love, religion, controversial, seasonal, …) into a themed lexicon
+   that steers missions and the media-finding loop; theme-bias in playback selection
+   is optional and off by default. The domain palette and the hour→domain schedule
+   are runtime-editable, with sensitive domains (religion, controversial) framed for
+   reflection and scheduled to quieter hours. `llama3.2` supplies the words; the
+   calendar + schedule supply the anchor.
 
 ## Conventions
 
@@ -161,10 +162,11 @@ fallbacks — see design §2.4/§2.4a/§2.4b.
   weekday, timeOfDay, season, nearbyHolidays[] }` from a small built-in holiday
   dataset. No network, no LLM.
 - [ ] **`missions/domains.js`** (new) — default **domain palette** (history,
-  philosophy, art, science, nature, music, literature, culture, controversial,
-  seasonal) + default **hour→domain `themeSchedule`** (weighted; weekday/weekend;
-  heavier/controversial domains to later hours). Both overridable at runtime via a
-  stored config.
+  philosophy, art, science, nature, music, literature, culture, love, religion,
+  controversial, seasonal) + default **hour→domain `themeSchedule`** (weighted;
+  weekday/weekend; `love` in the evenings/Valentine's, sensitive domains `religion`
+  + `controversial` framed for reflection and scheduled to quieter hours). Both
+  overridable at runtime via a stored config.
 - [ ] **`model/theme.js`** (incl. `domain`) + **`missions/ollama.js`
   `generateTheme({calendar, domain})`** — hourly LLM call expands the picked domain
   + calendar facts into `{ label, terms[] }` (strict JSON, validated, calendar/
@@ -290,12 +292,15 @@ The two tracks are independent and could proceed in parallel, but per the
    Christmas, New Year, Valentine's, etc.) + season/time-of-day; movable holidays
    (Easter, Thanksgiving) added later. Confirm the starter set is enough.
 8. **Domain palette & default schedule** — starter domains: history, philosophy,
-   art, science, nature, music, literature, culture, controversial, seasonal. A
-   proposed default schedule: mornings nature/science + light seasonal, afternoons
-   art/history/culture, evenings philosophy/literature, late night controversial;
-   seasonal pre-empts near holidays. Confirm the palette and the rough shape.
-9. **Controversial domain** — enabled and scheduled to late hours by default,
-   framed as reflective debate (deny-list still bars harmful content). Keep it on,
-   restrict its hours further, or drop it entirely?
+   art, science, nature, music, literature, culture, love, religion, controversial,
+   seasonal. A proposed default schedule: mornings nature/science + light seasonal,
+   afternoons art/history/culture, evenings philosophy/literature/**love**, late
+   night **religion**/controversial (reflective/quiet hours); seasonal pre-empts
+   near holidays. Confirm the palette and the rough shape.
+9. **Sensitive domains (`religion`, `controversial`)** — enabled and scheduled to
+   quieter/reflective hours by default; `religion` framed respectfully and
+   comparatively (spirituality, ritual, tradition — not proselytizing or
+   disparaging), `controversial` as reflective debate; the deny-list still bars
+   harmful content. Keep both on, restrict their hours further, or drop either?
 
 None of these block starting Phase 0; they can be settled as each phase lands.
