@@ -10,11 +10,16 @@ Decisions already taken (from the request):
 - **Streaming target:** generic RTMP, YouTube-ready — a configurable ingest URL +
   stream key, so the same feature works with YouTube Live, Twitch, or any RTMP
   sink. No YouTube-specific OAuth/Live API wiring.
-- **Prompt engine:** local / template, built from the library's own lexical terms
-  (`labels` / `subjects` from `analyse`, feed text). No external LLM dependency,
-  in keeping with the existing local-model design (segmenter, kokoro TTS,
-  distilbart summariser). A pluggable seam is left so an LLM backend could be
-  dropped in later, but nothing in this pass requires one.
+- **Prompt engine (revised):** a **local LLM agent via Ollama** is the primary
+  generator — it authors broad, open-ended missions ("Get a picture of a dog",
+  "Film yourself falling down", "Who died recently?"). Ollama runs as a local HTTP
+  service, so this stays fully on-device with no API key and no cloud, in keeping
+  with the existing local-model design (segmenter, Kokoro TTS, distilbart). The
+  generator is pluggable behind one interface; a **runtime-editable prompt bank**
+  (a Mongo collection managed from the client) both **seeds/steers** the LLM and
+  serves as the **fallback** when Ollama is unreachable. The earlier
+  "local/template only" decision is superseded by this — templates survive only as
+  the offline fallback shape.
 
 ---
 
@@ -189,33 +194,38 @@ target), `useSession` gains `startBroadcast` / `stopBroadcast` and a
 
 ### 2.1 Goal
 
-The system composes **missions** — a question, task, or challenge — drawn from
-the library's own lexical vocabulary. The user answers with **text, image, or
-video**. The answer is stored as a new document **pre-tagged with the mission's
-terms**, so it enters the graph *already lexically related* and its terms become
-seeds for finding new media. This closes a loop:
+A **local LLM agent** composes **missions** — broad, open-ended questions, tasks,
+or challenges of the kind a person would set: *"Get a picture of a dog", "Film
+yourself falling down", "Tell me a quote of the day", "Who died recently?", "Is
+there a holiday going on today?"*. The user answers with **text, image, or
+video**. Each mission carries the lexical **term(s)** it implies (from the prompt
+itself — "dog", "fall", "holiday"), so the answer is stored **pre-tagged**, enters
+the graph *already lexically related*, and its terms become seeds for finding new
+media. This closes a loop:
 
 ```
-lexical vocabulary ─▶ mission ─▶ user answer (text/image/video)
-        ▲                              │
-        │                              ▼
-   richer graph ◀─ edges + term-biased fetch ◀─ answer tagged with terms
+LLM agent (Ollama) ─▶ mission ─▶ user answer (text/image/video)
+        ▲    ▲                          │
+   bank/steer library                   ▼
+        │    │      richer graph ◀─ edges + term-biased fetch ◀─ answer tagged with terms
 ```
 
-### 2.2 Where the vocabulary comes from
+The missions are broad and world-facing, **not** confined to what the library
+already contains — that is the whole point of using a generative agent rather than
+templates over existing subjects.
 
-`utils/vocabulary.js` (new) builds a weighted term list from the `data`
-collection:
+### 2.2 Steering context (optional, not the source)
 
-- `subjects` / `labels` from `analyse.js` — concrete nouns ("bicycle",
-  "person"), with `coverage` and frequency.
-- Feed text titles / `summarizedFrom` — optional keyword extraction (stopword-
-  filtered frequency) for terms that never appear as image subjects.
-
-Each term carries a **frequency** and a **graph-density** score (how many
-documents / edges already reference it). Missions deliberately favour terms that
-are *sparse* in the graph — that is the "lexically-bound find for new media"
-intent: prompt the user about what the library is thin on, so answers fill gaps.
+Unlike the earlier template design, the library vocabulary is **input to steer**
+the agent, not the source of prompts. `utils/vocabulary.js` (new) builds a light
+weighted term list from `data` — `subjects` / `labels` from `analyse.js`, feed-
+text keywords — each with a **graph-density** score (how many docs/edges reference
+it). The agent is optionally told which terms the library is *thin* on, so it can
+lean prompts toward filling gaps ("lexically-bound find for new media"). The agent
+is free to ignore it and ask something entirely new; steering is a nudge, not a
+constraint. Dynamic hints (today's date, whether a subscribed feed has fresh
+items) are passed the same way, enabling topical prompts like the holiday/obituary
+examples without hard-coding them.
 
 ### 2.3 Mission model (new `missions` collection)
 
@@ -229,42 +239,73 @@ never appear in playback. `model/mission.js` (new) defines and validates:
   prompt,       // rendered text shown to the user
   terms: [{ label, weight }],   // lexical terms this mission is about
   accepts,      // ['image','video','text'] — allowed answer media
-  origin,       // 'template' (future: 'llm')
-  template,     // which template produced it
+  origin,       // 'ollama' | 'bank' | 'template' — which generator produced it
+  source,       // model name (e.g. 'llama3.2') or bank-prompt id
   status,       // 'open' | 'answered' | 'dismissed' | 'expired'
   responses,    // document keys produced in answer
   createdAt, answeredAt,
 }
 ```
 
-### 2.4 The generator (the "agent")
+### 2.4 The agent (local LLM via Ollama)
 
-A template engine behind a small interface, so the choice of generator is a
-detail:
+One interface, three interchangeable backends, chosen by `MISSION_GENERATOR`
+(default `ollama`):
 
 - `missions/generator.js` — `MissionGenerator` interface:
-  `generate(vocabulary, options) -> mission`.
-- `missions/templates.js` — the `TemplateGenerator` implementation. Each template
-  declares its `kind`, `accepts`, term **arity**, and a term-selection strategy
-  (`frequent` / `rare` / `co-occurring` / `random`). Examples:
+  `generate(context) -> mission`, where `context` carries the optional steering
+  (sparse terms, date, fresh-feed flags) and the recent-mission history (so the
+  agent avoids repeating itself).
 
-  | template | kind | accepts | prompt |
-  |---|---|---|---|
-  | one-term find | find | image, video | "Show me something with **{term}**." |
-  | pair create | create | image, video | "Capture **{a}** and **{b}** together." |
-  | text memory | answer | text | "Describe a memory involving **{term}**." |
-  | contrast | find | image, video | "Find the opposite of **{term}**." |
+- **`missions/ollama.js` — `OllamaGenerator` (primary).** Calls a **local Ollama**
+  HTTP endpoint (`OLLAMA_URL`, default `http://localhost:11434`, model
+  `OLLAMA_MODEL`, default a small instruct model such as `llama3.2`). A fixed
+  system prompt asks for one broad, open-ended mission answerable by a person with
+  a phone, returned as strict JSON: `{ prompt, accepts, terms, kind }`. The
+  response is parsed and validated against `model/mission.js`; malformed output is
+  retried once, then falls through to the bank. No API key, nothing leaves the
+  machine. Ollama's `/api/generate` with `format: "json"` (or the `/v1` OpenAI-
+  compatible route) keeps the output parseable.
 
-  The set is data-driven and extensible; adding a template is adding a row, not
-  editing the engine.
+- **`missions/bank.js` — `BankGenerator` (fallback + your own prompts).** Draws
+  from a **runtime-editable `prompts` collection** (see §2.4a): the user's pinned
+  broad prompts, seeded with a starter set. Picks least-recently-used, avoiding
+  repeats. This is what runs when Ollama is unreachable, so missions never stop.
 
-- `cognition/prompt.js` (new) — a scheduled task, registered in `index.js`
-  alongside `relate` / `generate`. Each tick: if open missions < a small cap,
-  build the vocabulary, pick a template + terms (biasing toward sparse terms),
-  render, and store an `open` mission.
+- **`missions/template.js` — `TemplateGenerator` (offline last resort).** The
+  minimal library-derived shape from the earlier design, kept only so the feature
+  degrades gracefully with neither Ollama nor a bank.
 
-An LLM generator (`origin: 'llm'`) is a future drop-in behind
-`MISSION_GENERATOR=llm`; nothing else changes. Not built this pass.
+- `cognition/prompt.js` (new) — scheduled task, registered in `index.js` alongside
+  `relate` / `generate`. Each tick: if open missions < a small cap, build the
+  steering context and call the configured generator (with automatic fallback down
+  the chain ollama → bank → template), then store an `open` mission.
+
+The agent extracts `terms` for the lexical hook: the LLM returns them directly;
+the bank/template carry them per prompt. A short deny-list keeps prompts safe and
+answerable (nothing requiring travel, purchase, or anything unsafe).
+
+### 2.4a The runtime prompt bank (`prompts` collection)
+
+Per the authoring decision, the bank is **stored in Mongo and edited from the
+client**, not a code file:
+
+- `prompts` collection: `{ id, text, accepts[], terms[], enabled, tags[],
+  createdAt, lastUsedAt }`.
+- `action/prompt.js` (new) — `{ op: 'list'|'add'|'update'|'remove'|'seed', ... }`,
+  so the client can maintain the bank at runtime. `seed` loads a small starter set
+  on first run (idempotent).
+- The bank both **feeds `BankGenerator`** and can **steer Ollama** (a few of the
+  user's prompts included as style examples), so your authored voice shapes even
+  the LLM-generated ones.
+
+### 2.4b Running Ollama
+
+Ollama is an external local service, not bundled in the current image. Options,
+documented in the README: run it on the host and point `OLLAMA_URL` at it, or add
+an `ollama` service to `docker-compose.yml` (with a model-pull init). Because the
+generator falls back to the bank, the feature works with or without Ollama
+present — Ollama upgrades mission quality and variety rather than being required.
 
 ### 2.5 Answering a mission
 
@@ -299,18 +340,22 @@ The mission terms become **fetch seeds**:
 
 ### 2.7 Files — `zap-api`
 
-New: `model/mission.js`, `utils/vocabulary.js`, `missions/generator.js`,
-`missions/templates.js`, `cognition/prompt.js`, `action/mission.js`
-(list / get / generate / dismiss), `action/respond.js`.
+New: `model/mission.js`, `utils/vocabulary.js`, `missions/generator.js`
+(interface + fallback chain), `missions/ollama.js`, `missions/bank.js`,
+`missions/template.js`, `utils/ollama.js` (thin HTTP client), `cognition/prompt.js`,
+`action/mission.js` (list / get / generate / dismiss), `action/prompt.js`
+(bank CRUD + seed), `action/respond.js`.
 
 Edited: `action/registry.js` (register `mission`, `respond`), `index.js`
 (register the `prompt` cognition task), `session.js` (emit `mission:state`,
 handle `mission:answer`), optionally `action/ingest.js` +
 `cognition/generate.js` (term-biased strategies).
 
-Tests: `test/vocabulary.test.js`, `test/mission.test.js` (model + templates +
-generator determinism given a seeded vocabulary), `test/respond.test.js`
-(ingest + pre-tag + edge creation + mission close).
+Tests: `test/vocabulary.test.js`, `test/mission.test.js` (model + bank/template
+generators + JSON parsing/validation of an Ollama response, with the HTTP client
+mocked), `test/prompt.test.js` (bank CRUD + seed idempotency), `test/respond.test.js`
+(ingest + pre-tag + edge creation + mission close). Ollama is exercised through an
+injectable HTTP seam so tests need no running model.
 
 ### 2.8 Client — see `zap-cli` doc
 
@@ -319,8 +364,15 @@ generator determinism given a seeded vocabulary), `test/respond.test.js`
 
 ### 2.9 Risks
 
-- **Repetitiveness** of template missions → mitigated by term-selection variety,
-  a template pool, and the LLM seam.
+- **Ollama availability:** it's an external local service. Mitigated by the
+  fallback chain (ollama → bank → template) so missions never stop, and by the
+  bare-metal-or-compose install options in §2.4b.
+- **LLM output quality/safety:** open-ended generation can drift off-format or
+  suggest something unanswerable/unsafe. Mitigated by `format: json` + schema
+  validation + one retry, a deny-list, and the bank fallback. A small instruct
+  model is enough — missions are one short sentence.
+- **Repetitiveness:** history is passed in the steering context so the agent
+  avoids recent repeats; the bank uses least-recently-used.
 - **Trust:** pre-seeding terms assumes a user's answer really is "about" the term;
   acceptable, and `analyse` cross-checks image/video answers.
 - **UX:** missions must not interrupt playback — a dismissible panel, never a
@@ -352,6 +404,11 @@ Each phase is independently reviewable and independently useful.
    (read-only consumer of relevance); env flag can enable it later. §1.4.
 5. **Answer analysis:** image/video answers are **pre-tagged from mission terms
    immediately and also queued for `analyse`** to confirm/augment. §2.5.
+6. **Mission generator:** a **local LLM agent via Ollama** is primary (broad,
+   open-ended prompts), with automatic fallback to a bank then a template so it
+   never stalls. §2.4.
+7. **Prompt bank authoring:** a **runtime-editable `prompts` collection** managed
+   from the client (seeded with a starter set), not a code file. §2.4a.
 
 The concrete build order and task breakdown for these decisions is in
 `docs/plan/streaming-and-prompts.md`.

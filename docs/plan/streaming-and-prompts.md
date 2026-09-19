@@ -17,6 +17,11 @@ Companion documents:
 4. **Weights:** broadcast does not mutate weights by default.
 5. **Answer analysis:** pre-tag answers from mission terms immediately **and**
    queue `analyse` for image/video answers.
+6. **Mission generator:** a **local LLM agent via Ollama** authors broad,
+   open-ended prompts (primary), with automatic fallback to a runtime bank then a
+   template so it never stalls.
+7. **Prompt bank:** a **runtime-editable `prompts` collection** managed from the
+   client (seeded with a starter set), not a code file.
 
 ## Conventions
 
@@ -121,33 +126,49 @@ monitor from the browser; key is never exposed client-side.
 
 ---
 
-## Phase 3 — Mission model, vocabulary & generator (engine)
+## Phase 3 — Mission model, local LLM agent & prompt bank (engine)
 
-The core of feature 2. Independent of Phases 0–2.
+The core of feature 2. Independent of Phases 0–2. The generator is a **local LLM
+agent via Ollama** (primary) with a runtime-editable bank and a template as
+fallbacks — see design §2.4/§2.4a/§2.4b.
 
 - [ ] **`model/mission.js`** (new) — schema + `validate` / `normalize`
-  (`key, kind, prompt, terms[], accepts[], origin, template, status, responses[],
-  createdAt, answeredAt`). Missions live in a `missions` collection (never in
-  playback).
-- [ ] **`utils/vocabulary.js`** (new) — build a weighted term list from `data`:
-  `subjects`/`labels` (coverage + frequency) and optional feed-text keywords;
-  each term carries frequency and **graph-density** (docs/edges referencing it).
+  (`key, kind, prompt, terms[], accepts[], origin, source, status, responses[],
+  createdAt, answeredAt`). `missions` collection (never in playback).
+- [ ] **`utils/ollama.js`** (new) — thin HTTP client for a local Ollama
+  (`OLLAMA_URL`, default `http://localhost:11434`), `generate(prompt,{format:'json'})`
+  with timeout + injectable `fetch` seam. Reports reachability so callers can fall
+  back cleanly.
 - [ ] **`missions/generator.js`** (new) — `MissionGenerator` interface
-  `generate(vocabulary, options) -> mission`; `TemplateGenerator` selected by
-  default. Seam for a future `origin:'llm'` behind `MISSION_GENERATOR`.
-- [ ] **`missions/templates.js`** (new) — data-driven templates (kind, accepts,
-  arity, term-selection strategy: frequent/rare/co-occurring/random). Seed set:
-  one-term find, pair create, text memory, contrast. Bias toward **sparse** terms.
+  `generate(context) -> mission` + the fallback chain (ollama → bank → template),
+  selected by `MISSION_GENERATOR` (default `ollama`).
+- [ ] **`missions/ollama.js`** (new) — `OllamaGenerator`: system prompt for one
+  broad, open-ended mission; parse/validate strict JSON `{prompt,accepts,terms,
+  kind}`; one retry then fall through. Deny-list for unsafe/unanswerable prompts.
+- [ ] **`missions/bank.js`** (new) — `BankGenerator`: least-recently-used draw
+  from the `prompts` collection; also supplies a few examples to steer Ollama.
+- [ ] **`missions/template.js`** (new) — minimal library-derived last resort.
+- [ ] **`utils/vocabulary.js`** (new) — light term list from `data` + graph-density,
+  used only as **steering context** (sparse terms, plus date / fresh-feed hints).
+- [ ] **`action/prompt.js`** (new) + registry — bank CRUD:
+  `{ op: 'list'|'add'|'update'|'remove'|'seed' }`; `seed` is idempotent.
 - [ ] **`cognition/prompt.js`** (new) + **`index.js`** — scheduled task: when open
-  missions < cap, generate one. Register alongside `relate`/`generate`.
+  missions < cap, build steering context and call the generator (with fallback).
 - [ ] **`action/mission.js`** (new) + registry — `{ op: 'list'|'get'|'generate'
   |'dismiss', ... }`.
+- [ ] **Env & docs** — `MISSION_GENERATOR`, `OLLAMA_URL`, `OLLAMA_MODEL`
+  (default a small instruct model, e.g. `llama3.2`); README section on running
+  Ollama on the host or as a `docker-compose` service, noting the bank fallback
+  means it's optional.
 
-**Tests:** `test/vocabulary.test.js` (weighting/sparsity), `test/mission.test.js`
-(model + template rendering + generator determinism on a seeded vocabulary).
+**Tests:** `test/vocabulary.test.js`; `test/mission.test.js` (model + bank/template
+generators + Ollama JSON parse/validate with the HTTP seam mocked + fallback
+chain); `test/prompt.test.js` (bank CRUD + seed idempotency).
 
-**Acceptance:** `mission generate` yields a well-formed open mission whose terms
-come from the library; the cognition task keeps a small pool of open missions.
+**Acceptance:** with Ollama running, `mission generate` yields a well-formed, broad
+open-ended mission carrying its lexical terms; with Ollama stopped, it falls back
+to the bank and still produces one; the cognition task keeps a small pool of open
+missions without repeating recent ones.
 
 ---
 
@@ -180,17 +201,21 @@ to `answered`.
 
 ---
 
-## Phase 5 — Mission client surface (zap-cli)
+## Phase 5 — Mission client surface + prompt-bank admin (zap-cli)
 
 Depends on Phases 3–4. Detailed in the zap-cli plan; summary:
 
 - [ ] `stores/mission.js`, `useSession.js` (`mission:state` + `answerMission`),
   `components/MissionPanel.vue` (quiet panel + accepts-based answer affordance +
   opt-in "nudge" toast persisted in `localStorage`), `App.vue` mount + button.
+- [ ] `components/PromptBankPanel.vue` — the **runtime bank admin**: list / add /
+  edit / remove prompts and trigger `seed`, via `run('prompt', { op, ... })`. This
+  is the "runtime collection + UI" authoring decision.
 
 **Acceptance:** an open mission shows in the panel; text/image/video answers
 submit and clear the mission; the nudge toggle controls occasional surfacing and
-never blocks playback.
+never blocks playback; the operator can maintain the prompt bank from the client
+without a redeploy.
 
 ---
 
@@ -215,5 +240,8 @@ The two tracks are independent and could proceed in parallel, but per the
    one per cognition tick. Confirm.
 4. **Text-answer storage** — store as a `text/plain` file under `DATA_DIR` like
    RSS ingest (default), consistent with the one-file-one-document model.
+5. **Ollama model & hosting** — default model `llama3.2` (small, fast, good enough
+   for one-sentence prompts); host Ollama on the machine (default) or add a
+   `docker-compose` service. Confirm the model, or name one you already run.
 
 None of these block starting Phase 0; they can be settled as each phase lands.
