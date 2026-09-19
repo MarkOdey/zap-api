@@ -7,6 +7,12 @@ Companion documents:
 - Design (engine): `docs/design/streaming-and-prompts.md`
 - Design (client): `zap-cli/docs/design/streaming-and-prompts.md`
 - Client task plan: `zap-cli/docs/plan/streaming-and-prompts.md`
+- **Hosting decision: `docs/deployment/hosting.md`** — the "how do we host this"
+  blocker is resolved: **local-first (Docker Compose on your own machine) + a
+  private tunnel (Tailscale/Cloudflare) for remote access**, $0, no new hardware,
+  cloud/mini-PC deferred. On-demand streaming; access stays local+private so
+  public-hardening of the `run`/terminal surface is **not** a Phase-0 prerequisite
+  (it gates only a future decision to expose it publicly).
 
 ## Resolved decisions this plan encodes
 
