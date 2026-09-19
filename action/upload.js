@@ -3,6 +3,7 @@ import path from 'path';
 import record from './record.js';
 import segment from './segment.js';
 import connect from './connect.js';
+import respond from './respond.js';
 
 async function upload(data) {
   console.log("upload: receiving", typeof data === "string" ? "(json)" : data?.meta?.name);
@@ -11,17 +12,31 @@ async function upload(data) {
   const { meta, data: payload } = data;
   if (!meta?.name) throw new Error("upload: missing meta.name");
 
+  // An upload may answer a mission: store as usual, then tag/link/close it.
+  const missionKey = data.missionKey || meta?.missionKey;
+
   const source = path.join(process.env.DATA_DIR || "./data", path.basename(meta.name));
 
   await writePayload(source, payload);
   console.log("upload: file written to", source);
 
+  let result;
   if (meta.type?.includes("video")) {
-    return await uploadVideo(source, meta);
+    result = await uploadVideo(source, meta);
   } else {
     await record({ key: source, source, ...meta });
-    return { segments: 1 };
+    result = { segments: 1, key: source };
   }
+
+  if (missionKey && result.key) {
+    try {
+      result.mission = await respond({ missionKey, key: result.key });
+    } catch (err) {
+      console.warn("upload: mission answer failed —", err.message);
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -81,7 +96,7 @@ async function uploadVideo(source, meta) {
 
   await fs.unlink(source);
   console.log("upload: original removed", source);
-  return { segments: keys.length };
+  return { segments: keys.length, key: keys[0] };
 }
 
 export default upload;
