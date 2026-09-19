@@ -23,9 +23,12 @@ Companion documents:
 7. **Prompt bank:** a **runtime-editable `prompts` collection** managed from the
    client (seeded with a starter set), not a code file.
 8. **Time-aware themes:** an **hourly** agent turns local calendar facts (season /
-   nearby holidays / time of day) into a themed lexicon that steers missions and
-   the media-finding loop; theme-bias in playback selection is optional and off by
-   default. `llama3.2` supplies the words; the calendar supplies the facts.
+   nearby holidays / time of day) **plus a scheduled domain** (history, philosophy,
+   art, science, controversial, seasonal, …) into a themed lexicon that steers
+   missions and the media-finding loop; theme-bias in playback selection is
+   optional and off by default. The domain palette and the hour→domain schedule are
+   runtime-editable, with heavier/controversial domains scheduled to later hours.
+   `llama3.2` supplies the words; the calendar + schedule supply the anchor.
 
 ## Conventions
 
@@ -157,13 +160,20 @@ fallbacks — see design §2.4/§2.4a/§2.4b.
 - [ ] **`utils/calendar.js`** (new, pure) — local calendar facts `{ date, dayOfYear,
   weekday, timeOfDay, season, nearbyHolidays[] }` from a small built-in holiday
   dataset. No network, no LLM.
-- [ ] **`model/theme.js`** + **`missions/ollama.js` `generateTheme`** — hourly LLM
-  call expands calendar facts into `{ label, terms[] }` (strict JSON, validated,
-  calendar-only fallback). Stored in a `themes` collection (current + history).
+- [ ] **`missions/domains.js`** (new) — default **domain palette** (history,
+  philosophy, art, science, nature, music, literature, culture, controversial,
+  seasonal) + default **hour→domain `themeSchedule`** (weighted; weekday/weekend;
+  heavier/controversial domains to later hours). Both overridable at runtime via a
+  stored config.
+- [ ] **`model/theme.js`** (incl. `domain`) + **`missions/ollama.js`
+  `generateTheme({calendar, domain})`** — hourly LLM call expands the picked domain
+  + calendar facts into `{ label, terms[] }` (strict JSON, validated, calendar/
+  domain-only fallback). Stored in a `themes` collection (current + history).
 - [ ] **`cognition/theme.js`** (new) + **`index.js`** — hourly task
-  (`THEME_INTERVAL_MS`); regenerate when the current theme is missing/expired.
-  Feed the current theme's terms into the mission steering context.
-- [ ] **`action/theme.js`** (new) + registry — `{ op: 'get'|'regenerate' }`.
+  (`THEME_INTERVAL_MS`): pick a domain from the schedule (seasonal pre-empts near a
+  holiday), generate the theme, feed its terms into the mission steering context.
+- [ ] **`action/theme.js`** (new) + registry — `{ op: 'get'|'regenerate' }` plus
+  `{ op: 'getSchedule'|'setSchedule'|'setDomains' }` for runtime editing.
 - [ ] **`action/prompt.js`** (new) + registry — bank CRUD:
   `{ op: 'list'|'add'|'update'|'remove'|'seed' }`; `seed` is idempotent.
 - [ ] **`cognition/prompt.js`** (new) + **`index.js`** — scheduled task: when open
@@ -176,17 +186,20 @@ fallbacks — see design §2.4/§2.4a/§2.4b.
   means it's optional.
 
 **Tests:** `test/vocabulary.test.js`; `test/calendar.test.js` (season/holiday-
-proximity facts for fixed dates, incl. a near-Halloween date); `test/mission.test.js`
-(model + bank/template generators + Ollama JSON parse/validate with the HTTP seam
-mocked + fallback chain); `test/theme.test.js` (theme JSON parse/validate +
-calendar-only fallback); `test/prompt.test.js` (bank CRUD + seed idempotency).
+proximity facts for fixed dates, incl. a near-Halloween date); `test/domains.test.js`
+(schedule picks the right domain set for an hour; seasonal pre-empts near a holiday;
+runtime override applies); `test/mission.test.js` (model + bank/template generators
++ Ollama JSON parse/validate with the HTTP seam mocked + fallback chain);
+`test/theme.test.js` (domain+calendar prompt shaping, theme JSON parse/validate +
+fallback); `test/prompt.test.js` (bank CRUD + seed idempotency).
 
 **Acceptance:** with Ollama running, `mission generate` yields a well-formed, broad
 open-ended mission carrying its lexical terms; with Ollama stopped, it falls back
 to the bank and still produces one; the cognition task keeps a small pool of open
-missions without repeating recent ones. The hourly theme task produces a themed
-lexicon from the date (e.g. a Halloween-flavoured term list in late October) and
-that lexicon appears in the mission steering context.
+missions without repeating recent ones. The hourly theme task picks a domain
+appropriate to the hour (art in the afternoon, philosophy late evening), pre-empts
+with seasonal near a holiday, produces a matching lexicon, and that lexicon appears
+in the mission steering context.
 
 ---
 
@@ -276,5 +289,13 @@ The two tracks are independent and could proceed in parallel, but per the
 7. **Holiday dataset scope** — start with a small fixed-date set (Halloween,
    Christmas, New Year, Valentine's, etc.) + season/time-of-day; movable holidays
    (Easter, Thanksgiving) added later. Confirm the starter set is enough.
+8. **Domain palette & default schedule** — starter domains: history, philosophy,
+   art, science, nature, music, literature, culture, controversial, seasonal. A
+   proposed default schedule: mornings nature/science + light seasonal, afternoons
+   art/history/culture, evenings philosophy/literature, late night controversial;
+   seasonal pre-empts near holidays. Confirm the palette and the rough shape.
+9. **Controversial domain** — enabled and scheduled to late hours by default,
+   framed as reflective debate (deny-list still bars harmful content). Keep it on,
+   restrict its hours further, or drop it entirely?
 
 None of these block starting Phase 0; they can be settled as each phase lands.

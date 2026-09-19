@@ -230,36 +230,61 @@ examples without hard-coding them.
 ### 2.2a Time-aware themes (the hourly agent)
 
 The strongest form of that dynamic steering is a **theme**: on a slow cadence
-(default hourly) the agent reads the calendar and produces a themed **lexicon**
-that steers everything downstream. The calendar gives the *anchor*, the LLM gives
-the *words* — so no holiday word-list is ever hard-coded.
+(default hourly) the agent produces a themed **lexicon** that steers everything
+downstream. Two inputs feed it — the **calendar** (season, nearby holidays) and a
+**domain schedule** (which *kind* of theme suits this hour). The inputs give the
+*anchor*; the LLM gives the *words* — so nothing is hard-coded per holiday or
+domain.
 
-- **`utils/calendar.js`** (new, pure/local) computes a factual context from the
-  clock: `{ date, dayOfYear, weekday, timeOfDay (morning/afternoon/evening/night),
-  season, nearbyHolidays: [{ name, daysAway }] }`. Holidays come from a small local
-  dataset (fixed-date ones like Halloween, Christmas, New Year, plus a few
-  approximate movable ones, clearly marked). No network, no LLM — just facts.
-- **The agent expands it.** `OllamaGenerator.generateTheme(calendarContext)` is
-  asked, e.g., *"It's Oct 28 (3 days to Halloween), autumn, evening — give a short
-  theme label and 8–15 evocative single words"* → `{ label: "Halloween",
-  terms: ["pumpkin","ghost","costume","spooky","candy","autumn","fog", …] }`.
-  Strict JSON, validated, one retry, then a calendar-only fallback (a plain
-  season/holiday label with a tiny built-in seed list) so a theme always exists.
-- **`themes` collection / current-theme doc:** `{ period, label, terms[],
+- **Domains (the palette).** Beyond seasonal, themes are drawn from a set of
+  intellectual/cultural **domains**: `history`, `philosophy`, `art`, `science`,
+  `nature`, `music`, `literature`, `culture`, `controversial` (debate-worthy big
+  questions — ethics, society, the future — framed for reflection, never harmful
+  content; the generator deny-list still applies), plus `seasonal`. The list is
+  **runtime-editable** (stored, edited from the client), so you can add or retire
+  domains without a redeploy.
+- **Hourly schedule (appropriate theme per hour).** A `themeSchedule` maps each
+  hour (or time-of-day band) to a weighted set of domains — e.g. mornings lean
+  `nature` / `science` / light seasonal, afternoons `art` / `history` / `culture`,
+  late evening `philosophy` / `literature`, late night `controversial`. Weekends
+  can differ from weekdays. Seasonal is always eligible and, when a holiday is
+  near, it outweighs the scheduled domain (Halloween wins on Oct 31 whatever the
+  hour). The schedule is a sensible default, **runtime-editable** like the domains,
+  and doubles as light appropriateness-gating (heavier/controversial domains are
+  simply scheduled to later hours).
+- **`utils/calendar.js`** (new, pure/local) computes the factual half: `{ date,
+  dayOfYear, weekday, timeOfDay, season, nearbyHolidays: [{ name, daysAway }] }`.
+  Holidays come from a small local dataset (fixed-date ones like Halloween,
+  Christmas, New Year, plus a few approximate movable ones, clearly marked). No
+  network, no LLM — just facts.
+- **The agent picks a domain and expands it.** `cognition/theme.js` reads the
+  calendar + the hour's scheduled domains, chooses one (weighted; holiday-seasonal
+  can pre-empt), and `OllamaGenerator.generateTheme({ calendar, domain })` returns
+  `{ label, terms[] }`:
+  - *domain `seasonal`, near Halloween* → `{ label: "Halloween", terms:
+    ["pumpkin","ghost","spooky","autumn","fog", …] }`
+  - *domain `philosophy`, late evening* → `{ label: "Free will", terms:
+    ["choice","determinism","mind","fate","agency","ethics", …] }`
+  - *domain `art`, afternoon* → `{ label: "Impressionism", terms:
+    ["light","brushstroke","Monet","colour","garden","fleeting", …] }`
+  Strict JSON, validated, one retry, then a calendar/domain-only fallback (a plain
+  label with a tiny built-in seed list) so a theme always exists.
+- **`themes` collection / current-theme doc:** `{ period, domain, label, terms[],
   calendarContext, generatedAt, expiresAt }`. One current theme at a time; history
   kept for inspection.
 - **`cognition/theme.js`** (new) — scheduled hourly (`THEME_INTERVAL_MS`); when the
-  current theme is missing or expired, regenerate it. Registered in `index.js`.
+  current theme is missing or expired, choose a domain from the schedule and
+  regenerate. Registered in `index.js`.
 
 **What the theme steers** (this is the "use that lexicon to find media" part):
 
 1. **Missions** — the current theme's terms are added to the mission steering
-   context, so around Halloween the agent tends to ask *"Show me the spookiest
-   thing near you"* / *"Get a picture of a pumpkin"*. Missions still range freely;
-   the theme just tilts them.
+   context, so a Halloween evening tilts toward *"Get a picture of a pumpkin"* and
+   a philosophy late-night toward *"What does free will mean to you?"*. Missions
+   still range freely; the theme just tilts them.
 2. **Lexical fetch** — the theme terms join the mission terms as **fetch seeds**
    for the term-biased ingest/relate work in §2.6, so content growth bends toward
-   the season.
+   the current theme.
 3. **Selection (optional, flagged)** — `THEME_BIAS` (default off) can add a gentle
    score boost in `selectionPipeline` for documents whose `labels`/`subjects`
    intersect the theme terms, so the player — and the broadcast (§1) — lean into
@@ -267,7 +292,8 @@ the *words* — so no holiday word-list is ever hard-coded.
    dial rather than a filter.
 
 The theme is a small, cheap, once-an-hour LLM call whose product (a word list) is
-reused everywhere, rather than re-deriving seasonality on every mission or query.
+reused everywhere, rather than re-deriving the day's or hour's mood on every
+mission or query.
 
 ### 2.3 Mission model (new `missions` collection)
 
@@ -385,13 +411,16 @@ seeds**:
 
 ### 2.7 Files — `zap-api`
 
-New: `model/mission.js`, `model/theme.js`, `utils/vocabulary.js`,
-`utils/calendar.js` (local date/season/holiday facts), `missions/generator.js`
-(interface + fallback chain, incl. `generateTheme`), `missions/ollama.js`,
-`missions/bank.js`, `missions/template.js`, `utils/ollama.js` (thin HTTP client),
-`cognition/prompt.js`, `cognition/theme.js` (hourly theme), `action/mission.js`
-(list / get / generate / dismiss), `action/prompt.js` (bank CRUD + seed),
-`action/theme.js` (get / regenerate current theme), `action/respond.js`.
+New: `model/mission.js`, `model/theme.js` (theme incl. `domain`), `missions/
+domains.js` (default domain palette + hourly `themeSchedule`, both runtime-
+overridable), `utils/vocabulary.js`, `utils/calendar.js` (local date/season/
+holiday facts), `missions/generator.js` (interface + fallback chain, incl.
+`generateTheme({calendar, domain})`), `missions/ollama.js`, `missions/bank.js`,
+`missions/template.js`, `utils/ollama.js` (thin HTTP client), `cognition/prompt.js`,
+`cognition/theme.js` (hourly: pick domain from schedule, then generate),
+`action/mission.js` (list / get / generate / dismiss), `action/prompt.js` (bank
+CRUD + seed), `action/theme.js` (get / regenerate current theme; get/set the
+domains + schedule), `action/respond.js`.
 
 Edited: `action/registry.js` (register `mission`, `prompt`, `theme`, `respond`),
 `index.js` (register the `prompt` and `theme` cognition tasks), `session.js`
@@ -458,9 +487,12 @@ Each phase is independently reviewable and independently useful.
 7. **Prompt bank authoring:** a **runtime-editable `prompts` collection** managed
    from the client (seeded with a starter set), not a code file. §2.4a.
 8. **Time-aware themes:** an **hourly** agent turns local calendar facts
-   (season / nearby holidays / time of day) into a themed **lexicon** that steers
-   missions and the media-finding loop; optional flagged theme-bias in selection.
-   Calendar facts are local; the LLM supplies the words. §2.2a.
+   (season / nearby holidays / time of day) **plus a scheduled domain** (history,
+   philosophy, art, science, controversial, seasonal, …) into a themed **lexicon**
+   that steers missions and the media-finding loop; optional flagged theme-bias in
+   selection. The domain palette and the hour→domain schedule are runtime-editable;
+   heavier/controversial domains are scheduled to later hours. Calendar facts are
+   local; the LLM supplies the words. §2.2a.
 
 The concrete build order and task breakdown for these decisions is in
 `docs/plan/streaming-and-prompts.md`.
