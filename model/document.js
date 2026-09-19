@@ -31,6 +31,15 @@ export const FIELDS = {
   labels:      { type: 'object', required: false, desc: 'Subjects found in the image, most prominent first' },
   subjects:    { type: 'object', required: false, desc: 'Those subjects with coverage and confidence' },
   analysedAt:  { type: 'object', required: false, desc: 'When it was last analysed' },
+
+  // Probed from video files by action/explore.js (via utils/ffprobe.js). The
+  // broadcast airs only videos with audio, and the selection layer can filter on
+  // it; duration/dimensions help the broadcast normaliser.
+  hasAudio:    { type: 'boolean', required: false, desc: 'Whether a video carries an audio track' },
+  duration:    { type: 'number', required: false, desc: 'Media duration in seconds', min: 0 },
+  width:       { type: 'number', required: false, desc: 'Video width in pixels', min: 0 },
+  height:      { type: 'number', required: false, desc: 'Video height in pixels', min: 0 },
+  mtimeMs:     { type: 'number', required: false, desc: 'File mtime when last probed, so probing can be skipped until it changes', min: 0 },
 };
 
 /**

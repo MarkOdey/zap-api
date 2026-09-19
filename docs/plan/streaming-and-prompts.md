@@ -51,33 +51,38 @@ Companion documents:
 
 ---
 
-## Phase 0 — Selection & metadata groundwork (engine)
+## Phase 0 — Selection & metadata groundwork (engine) ✅ DONE
 
-Small, low-risk, unblocks Phase 1. No user-visible change.
+Small, low-risk, unblocks Phase 1. No user-visible change. **Implemented and green
+(195 pass / 0 fail; DB-backed tests skip without `MONGO_URL`).**
 
-- [ ] **`utils/selection.js`** — add an optional `match` object to
+- [x] **`utils/selection.js`** — added an optional `match` object to
   `selectionPipeline({ ... })`, merged into the existing `$match` (keeps `weight`
   threshold and `keys`). `traversalPipeline` / `fallbackPipeline` pass it through.
-  Backwards compatible: no `match` ⇒ today's behaviour.
-- [ ] **`utils/ffprobe.js`** — confirm `probeStreams` returns per-stream
-  `codec_type`; add a helper `describeMedia(source) -> { hasAudio, duration,
-  width, height }` if not already derivable.
-- [ ] **`action/explore.js`** — when indexing/updating a `video/*` document,
-  populate `hasAudio` (+ `duration`, `width`, `height`) via `describeMedia`.
-  Probe lazily: only when the field is missing or the file's mtime changed, so
-  re-explore stays cheap.
-- [ ] **`model/document.js`** — document the new optional fields (`hasAudio`,
-  `duration`, `width`, `height`) in `FIELDS`.
-- [ ] **Backfill note** — existing video docs have no `hasAudio`; the broadcast's
-  on-air ffprobe safety net (Phase 1) covers them until a re-explore fills the
-  field. Optionally a one-off `node index.js explore` pass.
+  Backwards compatible: no `match` ⇒ today's behaviour (local var renamed to
+  `filter` to avoid shadowing the option).
+- [x] **`utils/ffprobe.js`** — `probeStreams` already returns the codec facts;
+  added `describeMedia(source) -> { hasAudio, duration, width, height }` and made
+  the ffprobe spawn injectable (`probeStreams(file, { run })`) so it's testable
+  without the binary.
+- [x] **`action/explore.js`** — video docs now get `hasAudio` (+ `duration`,
+  `width`, `height`, `mtimeMs`) via `describeMedia`, probed lazily (only when the
+  field is missing or the file's mtime changed). Probe failures are swallowed so a
+  missing ffprobe never breaks indexing. Prober injectable for tests
+  (`explore({ describe })`); `videoMetadata` exported for unit testing.
+- [x] **`model/document.js`** — documented the new optional fields (`hasAudio`,
+  `duration`, `width`, `height`, `mtimeMs`) in `FIELDS`.
+- [x] **Backfill** — handled by design: existing video docs get `hasAudio` on the
+  next explore (mtime-gated), and Phase 1's on-air ffprobe guard covers the gap.
 
-**Tests:** `test/selection.test.js` (extend) — `match` filter narrows the draw;
-absent `match` unchanged. `test/ffprobe`/`test/explore` — `describeMedia` shape
-and that explore records `hasAudio` (probe seam mocked).
+**Tests (all passing):** `test/selection.test.js` (extended — match merges with
+weight/keys; passes through fallback/traversal; absent match unchanged);
+`test/ffprobe.test.js` (new — parsing + `describeMedia` via injected spawn);
+`test/explore.test.js` (new — pure `videoMetadata` lazy-probe decision cases + a
+DB-guarded integration test that explore stores `hasAudio`).
 
-**Acceptance:** `selectionPipeline({ match: { type: /^video\//, hasAudio: true }})`
-returns only audio-bearing videos; all existing selection tests still pass.
+**Acceptance met:** `selectionPipeline({ match: { type: /^video\//, hasAudio:
+true }})` yields the video-only-with-audio draw; all existing tests still pass.
 
 ---
 

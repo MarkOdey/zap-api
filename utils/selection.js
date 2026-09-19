@@ -48,11 +48,13 @@ const MIN_SCORE = 1e-6;
  * @param {number}  [options.strength]    0 disables the recency term entirely
  * @param {number}  [options.floor]       Lowest recency multiplier, so nothing becomes unreachable
  * @param {string[]} [options.keys]      Restrict the draw to these document keys
+ * @param {object}  [options.match]       Extra `$match` conditions merged in, e.g. `{ type: /^video\//, hasAudio: true }`
  * @param {Date}    [options.now]         Injectable for tests
  */
 export function selectionPipeline({
   threshold = Math.random(),
   keys = null,
+  match = null,
   halfLifeDays = HALF_LIFE_DAYS,
   strength = RECENCY_STRENGTH,
   floor = RECENCY_FLOOR,
@@ -74,11 +76,14 @@ export function selectionPipeline({
 
   const recency = strength > 0 ? { $max: [floor, decay] } : 1;
 
-  const match = { weight: { $gt: threshold } };
-  if (keys) match.key = { $in: keys };
+  const filter = { weight: { $gt: threshold } };
+  if (keys) filter.key = { $in: keys };
+  // Extra conditions (e.g. video-only-with-audio for the broadcast) merge in
+  // alongside the weight threshold rather than replacing it.
+  if (match) Object.assign(filter, match);
 
   return [
-    { $match: match },
+    { $match: filter },
     {
       $addFields: {
         _score: {
