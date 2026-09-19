@@ -240,8 +240,7 @@ The two tracks are independent and could proceed in parallel, but per the
    one per cognition tick. Confirm.
 4. **Text-answer storage** — store as a `text/plain` file under `DATA_DIR` like
    RSS ingest (default), consistent with the one-file-one-document model.
-5. **Ollama model & hosting** — default model `llama3.2` (small, fast, good enough
-   for one-sentence prompts); host Ollama on the machine (default) or add a
-   `docker-compose` service. Confirm the model, or name one you already run.
+5. **Ollama model & hosting** — model **`llama3.2` (confirmed)**. Still open:
+   host Ollama on the machine (default) or add a `docker-compose` service.
 
 None of these block starting Phase 0; they can be settled as each phase lands.
