@@ -22,6 +22,10 @@ Companion documents:
    template so it never stalls.
 7. **Prompt bank:** a **runtime-editable `prompts` collection** managed from the
    client (seeded with a starter set), not a code file.
+8. **Time-aware themes:** an **hourly** agent turns local calendar facts (season /
+   nearby holidays / time of day) into a themed lexicon that steers missions and
+   the media-finding loop; theme-bias in playback selection is optional and off by
+   default. `llama3.2` supplies the words; the calendar supplies the facts.
 
 ## Conventions
 
@@ -150,6 +154,16 @@ fallbacks — see design §2.4/§2.4a/§2.4b.
 - [ ] **`missions/template.js`** (new) — minimal library-derived last resort.
 - [ ] **`utils/vocabulary.js`** (new) — light term list from `data` + graph-density,
   used only as **steering context** (sparse terms, plus date / fresh-feed hints).
+- [ ] **`utils/calendar.js`** (new, pure) — local calendar facts `{ date, dayOfYear,
+  weekday, timeOfDay, season, nearbyHolidays[] }` from a small built-in holiday
+  dataset. No network, no LLM.
+- [ ] **`model/theme.js`** + **`missions/ollama.js` `generateTheme`** — hourly LLM
+  call expands calendar facts into `{ label, terms[] }` (strict JSON, validated,
+  calendar-only fallback). Stored in a `themes` collection (current + history).
+- [ ] **`cognition/theme.js`** (new) + **`index.js`** — hourly task
+  (`THEME_INTERVAL_MS`); regenerate when the current theme is missing/expired.
+  Feed the current theme's terms into the mission steering context.
+- [ ] **`action/theme.js`** (new) + registry — `{ op: 'get'|'regenerate' }`.
 - [ ] **`action/prompt.js`** (new) + registry — bank CRUD:
   `{ op: 'list'|'add'|'update'|'remove'|'seed' }`; `seed` is idempotent.
 - [ ] **`cognition/prompt.js`** (new) + **`index.js`** — scheduled task: when open
@@ -157,18 +171,22 @@ fallbacks — see design §2.4/§2.4a/§2.4b.
 - [ ] **`action/mission.js`** (new) + registry — `{ op: 'list'|'get'|'generate'
   |'dismiss', ... }`.
 - [ ] **Env & docs** — `MISSION_GENERATOR`, `OLLAMA_URL`, `OLLAMA_MODEL`
-  (default a small instruct model, e.g. `llama3.2`); README section on running
+  (`llama3.2`), `THEME_INTERVAL_MS` (default 1h); README section on running
   Ollama on the host or as a `docker-compose` service, noting the bank fallback
   means it's optional.
 
-**Tests:** `test/vocabulary.test.js`; `test/mission.test.js` (model + bank/template
-generators + Ollama JSON parse/validate with the HTTP seam mocked + fallback
-chain); `test/prompt.test.js` (bank CRUD + seed idempotency).
+**Tests:** `test/vocabulary.test.js`; `test/calendar.test.js` (season/holiday-
+proximity facts for fixed dates, incl. a near-Halloween date); `test/mission.test.js`
+(model + bank/template generators + Ollama JSON parse/validate with the HTTP seam
+mocked + fallback chain); `test/theme.test.js` (theme JSON parse/validate +
+calendar-only fallback); `test/prompt.test.js` (bank CRUD + seed idempotency).
 
 **Acceptance:** with Ollama running, `mission generate` yields a well-formed, broad
 open-ended mission carrying its lexical terms; with Ollama stopped, it falls back
 to the bank and still produces one; the cognition task keeps a small pool of open
-missions without repeating recent ones.
+missions without repeating recent ones. The hourly theme task produces a themed
+lexicon from the date (e.g. a Halloween-flavoured term list in late October) and
+that lexicon appears in the mission steering context.
 
 ---
 
@@ -188,16 +206,23 @@ Depends on Phase 3.
 - [ ] **`session.js`** — emit `mission:state` (current open mission) on the
   heartbeat; handle `mission:answer` → `respond`.
 - [ ] **Term-biased fetch** (close the loop) — extend `cognition/generate.js` /
-  `action/ingest.js` so that when open missions exist, feed ingest and
-  analyse/relate work are prioritised by mission terms. External `discover` action
-  remains **out of scope** (needs an approved media API + network).
+  `action/ingest.js` so that when open missions **or an active theme** exist, feed
+  ingest and analyse/relate work are prioritised by those terms (mission terms +
+  theme lexicon). External `discover` action remains **out of scope** (needs an
+  approved media API + network).
+- [ ] **Optional theme-bias in selection** — behind `THEME_BIAS` (default off), add
+  a gentle score boost in `utils/selection.js` for documents whose
+  `labels`/`subjects` intersect the current theme terms, so the player and the
+  broadcast lean into the season without excluding anything.
 
 **Tests:** `test/respond.test.js` — ingest + pre-tag + `analyse` enqueued + edges
-created + mission closed; term-biased strategy prefers mission terms.
+created + mission closed; term-biased strategy prefers mission + theme terms;
+`THEME_BIAS` on boosts theme-matching docs and off changes nothing.
 
 **Acceptance:** answering a mission produces a document that is immediately
 reachable by traversal from library items sharing the term, and the mission moves
-to `answered`.
+to `answered`. With a theme active, feed ingest/relate prefers the theme lexicon;
+with `THEME_BIAS` on, seasonal media comes up more in playback (and the broadcast).
 
 ---
 
@@ -211,11 +236,14 @@ Depends on Phases 3–4. Detailed in the zap-cli plan; summary:
 - [ ] `components/PromptBankPanel.vue` — the **runtime bank admin**: list / add /
   edit / remove prompts and trigger `seed`, via `run('prompt', { op, ... })`. This
   is the "runtime collection + UI" authoring decision.
+- [ ] **Theme display** — `useSession` handles `theme:state` → a `theme` ref; a
+  small label (e.g. in `MissionPanel` header) shows the current theme
+  ("🎃 Halloween") so the seasonal steering is visible.
 
 **Acceptance:** an open mission shows in the panel; text/image/video answers
 submit and clear the mission; the nudge toggle controls occasional surfacing and
 never blocks playback; the operator can maintain the prompt bank from the client
-without a redeploy.
+without a redeploy; the current theme is visible.
 
 ---
 
@@ -242,5 +270,11 @@ The two tracks are independent and could proceed in parallel, but per the
    RSS ingest (default), consistent with the one-file-one-document model.
 5. **Ollama model & hosting** — model **`llama3.2` (confirmed)**. Still open:
    host Ollama on the machine (default) or add a `docker-compose` service.
+6. **Theme cadence & bias** — regenerate the theme **hourly** (default) and keep
+   theme-bias in playback **off** by default (a dial, not a filter). Confirm, or
+   say if you'd rather the theme also visibly steer what plays out of the box.
+7. **Holiday dataset scope** — start with a small fixed-date set (Halloween,
+   Christmas, New Year, Valentine's, etc.) + season/time-of-day; movable holidays
+   (Easter, Thanksgiving) added later. Confirm the starter set is enough.
 
 None of these block starting Phase 0; they can be settled as each phase lands.

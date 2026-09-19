@@ -227,6 +227,48 @@ constraint. Dynamic hints (today's date, whether a subscribed feed has fresh
 items) are passed the same way, enabling topical prompts like the holiday/obituary
 examples without hard-coding them.
 
+### 2.2a Time-aware themes (the hourly agent)
+
+The strongest form of that dynamic steering is a **theme**: on a slow cadence
+(default hourly) the agent reads the calendar and produces a themed **lexicon**
+that steers everything downstream. The calendar gives the *anchor*, the LLM gives
+the *words* — so no holiday word-list is ever hard-coded.
+
+- **`utils/calendar.js`** (new, pure/local) computes a factual context from the
+  clock: `{ date, dayOfYear, weekday, timeOfDay (morning/afternoon/evening/night),
+  season, nearbyHolidays: [{ name, daysAway }] }`. Holidays come from a small local
+  dataset (fixed-date ones like Halloween, Christmas, New Year, plus a few
+  approximate movable ones, clearly marked). No network, no LLM — just facts.
+- **The agent expands it.** `OllamaGenerator.generateTheme(calendarContext)` is
+  asked, e.g., *"It's Oct 28 (3 days to Halloween), autumn, evening — give a short
+  theme label and 8–15 evocative single words"* → `{ label: "Halloween",
+  terms: ["pumpkin","ghost","costume","spooky","candy","autumn","fog", …] }`.
+  Strict JSON, validated, one retry, then a calendar-only fallback (a plain
+  season/holiday label with a tiny built-in seed list) so a theme always exists.
+- **`themes` collection / current-theme doc:** `{ period, label, terms[],
+  calendarContext, generatedAt, expiresAt }`. One current theme at a time; history
+  kept for inspection.
+- **`cognition/theme.js`** (new) — scheduled hourly (`THEME_INTERVAL_MS`); when the
+  current theme is missing or expired, regenerate it. Registered in `index.js`.
+
+**What the theme steers** (this is the "use that lexicon to find media" part):
+
+1. **Missions** — the current theme's terms are added to the mission steering
+   context, so around Halloween the agent tends to ask *"Show me the spookiest
+   thing near you"* / *"Get a picture of a pumpkin"*. Missions still range freely;
+   the theme just tilts them.
+2. **Lexical fetch** — the theme terms join the mission terms as **fetch seeds**
+   for the term-biased ingest/relate work in §2.6, so content growth bends toward
+   the season.
+3. **Selection (optional, flagged)** — `THEME_BIAS` (default off) can add a gentle
+   score boost in `selectionPipeline` for documents whose `labels`/`subjects`
+   intersect the theme terms, so the player — and the broadcast (§1) — lean into
+   the theme without excluding anything. Off by default so it never surprises; a
+   dial rather than a filter.
+
+The theme is a small, cheap, once-an-hour LLM call whose product (a word list) is
+reused everywhere, rather than re-deriving seasonality on every mission or query.
+
 ### 2.3 Mission model (new `missions` collection)
 
 Missions live in their own collection — like `feeds`, they are not media and must
@@ -327,29 +369,35 @@ present — Ollama upgrades mission quality and variety rather than being requir
 
 ### 2.6 Closing the lexical loop (finding new media)
 
-The mission terms become **fetch seeds**:
+The **mission terms and the current theme's terms** together become **fetch
+seeds**:
 
 1. **Feed-biased ingest (in scope).** Extend `action/ingest.js` /
-   `cognition/generate.js` so that, when open missions exist, feed items and
-   analysis/relate work are **prioritised by mission terms** — content growth
-   bends toward what the user is being prompted about.
+   `cognition/generate.js` so that, when open missions or an active theme exist,
+   feed items and analysis/relate work are **prioritised by those terms** — content
+   growth bends toward what the user is being prompted about and toward the season
+   (so late October pulls in and links the autumn/Halloween-tinged media first).
 2. **External discovery (future, noted).** A `discover` action that queries an
    external media source by term would need an outbound API + credentials, which
    the local-only choice steers away from for now. Feeds are the fetch channel in
-   this pass.
+   this pass — and the theme lexicon is exactly the query such a `discover` would
+   use if one is added later.
 
 ### 2.7 Files — `zap-api`
 
-New: `model/mission.js`, `utils/vocabulary.js`, `missions/generator.js`
-(interface + fallback chain), `missions/ollama.js`, `missions/bank.js`,
-`missions/template.js`, `utils/ollama.js` (thin HTTP client), `cognition/prompt.js`,
-`action/mission.js` (list / get / generate / dismiss), `action/prompt.js`
-(bank CRUD + seed), `action/respond.js`.
+New: `model/mission.js`, `model/theme.js`, `utils/vocabulary.js`,
+`utils/calendar.js` (local date/season/holiday facts), `missions/generator.js`
+(interface + fallback chain, incl. `generateTheme`), `missions/ollama.js`,
+`missions/bank.js`, `missions/template.js`, `utils/ollama.js` (thin HTTP client),
+`cognition/prompt.js`, `cognition/theme.js` (hourly theme), `action/mission.js`
+(list / get / generate / dismiss), `action/prompt.js` (bank CRUD + seed),
+`action/theme.js` (get / regenerate current theme), `action/respond.js`.
 
-Edited: `action/registry.js` (register `mission`, `respond`), `index.js`
-(register the `prompt` cognition task), `session.js` (emit `mission:state`,
-handle `mission:answer`), optionally `action/ingest.js` +
-`cognition/generate.js` (term-biased strategies).
+Edited: `action/registry.js` (register `mission`, `prompt`, `theme`, `respond`),
+`index.js` (register the `prompt` and `theme` cognition tasks), `session.js`
+(emit `mission:state` + `theme:state`, handle `mission:answer`),
+`utils/selection.js` (optional `THEME_BIAS` score boost), optionally
+`action/ingest.js` + `cognition/generate.js` (term-biased strategies).
 
 Tests: `test/vocabulary.test.js`, `test/mission.test.js` (model + bank/template
 generators + JSON parsing/validation of an Ollama response, with the HTTP client
@@ -409,6 +457,10 @@ Each phase is independently reviewable and independently useful.
    never stalls. §2.4.
 7. **Prompt bank authoring:** a **runtime-editable `prompts` collection** managed
    from the client (seeded with a starter set), not a code file. §2.4a.
+8. **Time-aware themes:** an **hourly** agent turns local calendar facts
+   (season / nearby holidays / time of day) into a themed **lexicon** that steers
+   missions and the media-finding loop; optional flagged theme-bias in selection.
+   Calendar facts are local; the LLM supplies the words. §2.2a.
 
 The concrete build order and task breakdown for these decisions is in
 `docs/plan/streaming-and-prompts.md`.
