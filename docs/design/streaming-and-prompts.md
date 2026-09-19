@@ -90,27 +90,36 @@ selection loop ──picks video──▶ normaliser ──canonical .ts──�
   "up next" card as a short looping TS) so the encoder never runs dry and the
   broadcast never drops. Generated once at broadcast start.
 
-> **"Only video" and the silent-audio caveat.** The request is a video-only feed,
-> but YouTube Live (and most RTMP sinks) expect *an* audio track and may reject a
-> video-only stream. The canonical segment therefore carries a **silent AAC
-> track** unless the source clip has audio. This keeps the feed effectively
-> video-only while remaining a valid live stream. Configurable
-> (`BROADCAST_SILENT_AUDIO=true` default).
+> **"Only video" and audio — DECIDED: exclude clips without audio.** YouTube Live
+> (and most RTMP sinks) reject a stream with no audio track. Rather than inject
+> synthetic silence, the broadcast **only airs videos that already carry their own
+> audio track** — clips with no audio are simply not selected. This keeps the feed
+> a genuine audio+video program of real clips and sidesteps silent-stream
+> rejection. It requires the selection layer to know which videos have audio (see
+> §1.4). Superseded options (silent-AAC injection, truly-no-audio) are not built.
 
-**Fallback noted, not chosen:** a self-hosted HLS output (API writes an `.m3u8`
-+ segments, served over `/broadcast/live.m3u8`) is simpler and has no external
-dependency, but it isn't "on YouTube." It's worth keeping as an *internal
-preview/monitor* of what's being broadcast, and the normalise-to-TS design makes
-it nearly free to add later (the segments already exist). Out of scope for this
-pass unless wanted.
+**Self-hosted HLS preview — DECIDED: build it alongside RTMP.** The API also
+writes an `.m3u8` + segments served over `/broadcast/live.m3u8`, so the operator
+can watch the exact feed in the browser (`BroadcastPanel`) without opening
+YouTube. The normalise-to-TS design makes this nearly free — the same canonical TS
+segments feed both the RTMP encoder and the HLS window (a rolling playlist of the
+last N segments). RTMP remains the primary output.
 
 ### 1.4 Reuse of the player mechanism
 
 - **Selection.** Extend `selectionPipeline` (`utils/selection.js`) with an
-  optional **type filter** so a draw can be restricted to `video/*`. Today the
-  `$match` keys on `weight` and an optional `keys` list; add an optional
-  `typePattern` (e.g. `/^video\//`) merged into the same `$match`. Traversal
-  restricts edge-target candidates to video documents the same way.
+  optional **match filter** so a draw can be restricted to `video/*` **that carry
+  an audio track** (per the decision above). Today the `$match` keys on `weight`
+  and an optional `keys` list; add an optional `match` object (e.g.
+  `{ type: /^video\//, hasAudio: true }`) merged into the same `$match`. Traversal
+  restricts edge-target candidates the same way.
+- **Knowing which videos have audio.** Aggregation can't run ffprobe, so audio
+  presence is **precomputed** onto the document as `hasAudio: boolean` (and, while
+  we're probing, `duration` / `width` / `height`, useful to the normaliser). This
+  is filled by extending `action/explore.js` (or a dedicated probe step) using the
+  existing `utils/ffprobe.js` `probeStreams`. As a safety net the broadcast also
+  ffprobes a clip just before airing and skips it if audio is absent, so a stale or
+  missing `hasAudio` never puts a silent clip on air.
 - **The "session" shape.** Introduce a `BroadcastSession` mirroring the `Session`
   loop in `session.js`, but `advance()` is driven by **clip completion in the
   playout** rather than a socket `resolve` / `reject`. No viewer, so no
@@ -331,15 +340,18 @@ Each phase is independently reviewable and independently useful.
 
 ---
 
-## 4. Open questions for sign-off
+## 4. Decisions (resolved)
 
-1. **Streaming weights:** confirm the broadcast should *not* touch weights by
-   default (recommended).
-2. **Silent audio track:** OK to inject a silent AAC track so YouTube accepts the
-   "video-only" feed? (Recommended — otherwise many RTMP sinks reject it.)
-3. **Internal HLS preview:** want the near-free self-hosted HLS monitor added
-   alongside RTMP, or RTMP only?
-4. **Mission cadence:** how visible should missions be — a quiet panel the user
-   opens, or an occasional prompt surfaced between items?
-5. **Answer analysis:** run `analyse` on image/video answers automatically (adds
-   CPU) or only pre-tag from mission terms?
+1. **Audio:** the broadcast **airs only videos that already have an audio track**;
+   silent clips are excluded (no synthetic silence). §1.3 / §1.4.
+2. **HLS preview:** **built** alongside RTMP — `/broadcast/live.m3u8` for an
+   in-browser monitor. §1.3.
+3. **Mission surfacing:** **both, toggleable** — a quiet panel always, plus an
+   opt-in "nudge" setting that occasionally surfaces a mission between items.
+4. **Streaming weights:** the broadcast does **not** mutate weights by default
+   (read-only consumer of relevance); env flag can enable it later. §1.4.
+5. **Answer analysis:** image/video answers are **pre-tagged from mission terms
+   immediately and also queued for `analyse`** to confirm/augment. §2.5.
+
+The concrete build order and task breakdown for these decisions is in
+`docs/plan/streaming-and-prompts.md`.
