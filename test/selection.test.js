@@ -1,7 +1,7 @@
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { selectionPipeline, fallbackPipeline, HALF_LIFE_DAYS, RECENCY_FLOOR } from '../utils/selection.js';
+import { selectionPipeline, fallbackPipeline, traversalPipeline, HALF_LIFE_DAYS, RECENCY_FLOOR } from '../utils/selection.js';
 import MongoConnexion from '../utils/MongoConnexion.js';
 
 // Each test file runs in its own process and shares one MongoDB server, so they
@@ -45,6 +45,30 @@ describe('selection: pipeline shape', () => {
     const seen = new Set();
     for (let i = 0; i < 20; i++) seen.add(selectionPipeline()[0].$match.weight.$gt);
     assert.ok(seen.size > 1, 'threshold should vary between calls');
+  });
+});
+
+describe('selection: extra match conditions', () => {
+  it('leaves the match untouched when none are given', () => {
+    assert.deepEqual(selectionPipeline({ threshold: 0.4 })[0], { $match: { weight: { $gt: 0.4 } } });
+  });
+
+  it('merges extra conditions alongside the weight threshold', () => {
+    const m = selectionPipeline({ threshold: 0.4, match: { type: /^video\//, hasAudio: true } })[0].$match;
+    assert.deepEqual(m.weight, { $gt: 0.4 }, 'weight threshold must survive');
+    assert.equal(m.hasAudio, true, 'extra condition must be present');
+    assert.ok(m.type instanceof RegExp, 'extra regex condition must be present');
+  });
+
+  it('keeps both the key restriction and the extra conditions', () => {
+    const m = selectionPipeline({ keys: ['a', 'b'], match: { hasAudio: true } })[0].$match;
+    assert.deepEqual(m.key, { $in: ['a', 'b'] });
+    assert.equal(m.hasAudio, true);
+  });
+
+  it('passes match through the fallback and traversal pipelines', () => {
+    assert.equal(fallbackPipeline({ match: { hasAudio: true } })[0].$match.hasAudio, true);
+    assert.equal(traversalPipeline(['a'], { match: { hasAudio: true } })[0].$match.hasAudio, true);
   });
 });
 

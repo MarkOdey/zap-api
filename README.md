@@ -700,3 +700,39 @@ as strong as its weaker end.
 
 It still falls back to random pairing when nothing has been analysed, so a fresh library
 accumulates a graph regardless.
+
+---
+
+## Live broadcast (video-only RTMP feed)
+
+`broadcast` streams a continuous, video-only feed to an RTMP sink (YouTube Live,
+Twitch, …) using the same relevance selection as the player, restricted to videos
+that already carry an audio track (a silent stream is rejected by most sinks, and
+audio is never synthesised). One long-lived encoder holds the RTMP connection;
+each clip is normalised to canonical MPEG-TS and fed into it, with a black/silent
+filler loop so the stream never drops between clips. The same encoder writes an
+HLS preview so you can watch what is going out.
+
+Control it from the terminal or a socket `run`:
+
+```
+broadcast --op=start          # uses RTMP_URL / RTMP_INGEST+RTMP_KEY from the env
+broadcast --op=start --url=rtmp://a.rtmp.youtube.com/live2/YOUR-KEY
+broadcast --op=status
+broadcast --op=stop
+```
+
+Watch the preview at `http://<host>:3000/broadcast/live.m3u8`; status JSON at
+`/broadcast/status` (the stream key is always masked).
+
+| Env | Default | Meaning |
+|---|---|---|
+| `RTMP_URL` | — | Full ingest URL incl. stream key |
+| `RTMP_INGEST` + `RTMP_KEY` | — | Ingest base and key kept separate (key masked in logs) |
+| `BROADCAST_WIDTH` / `BROADCAST_HEIGHT` / `BROADCAST_FPS` | 1280 / 720 / 30 | Canonical output |
+| `BROADCAST_BITRATE` | 4500k | Video bitrate |
+| `BROADCAST_FILLER_SECONDS` | 5 | Filler segment length when nothing is ready |
+| `BROADCAST_REENCODE` | false | Re-encode at the encoder instead of copying, if a sink dislikes the copied TS discontinuities |
+
+Starting with no RTMP target runs HLS-only, useful for local preview. ffmpeg with
+libx264/aac is required (already in the Docker image).

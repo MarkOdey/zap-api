@@ -31,10 +31,11 @@ const MAX_CHARS = Number(process.env.INGEST_MAX_CHARS || 4000);
  * different thing, and not one to do by default.
  *
  * @param {object}  params
- * @param {string} [params.url]    Ingest one feed instead of all subscribed ones
- * @param {number} [params.limit]  Items per feed
+ * @param {string}   [params.url]    Ingest one feed instead of all subscribed ones
+ * @param {number}   [params.limit]  Items per feed
+ * @param {string[]} [params.terms]  Prefer items matching these terms (mission/theme lexicon)
  */
-async function ingest({ url, limit = PER_FEED } = {}) {
+async function ingest({ url, limit = PER_FEED, terms = null } = {}) {
   const db = await MongoConnexion.db();
   const col = db.collection('data');
 
@@ -60,7 +61,10 @@ async function ingest({ url, limit = PER_FEED } = {}) {
       continue;
     }
 
-    for (const item of feed.items.slice(0, Math.max(1, Number(limit) || PER_FEED))) {
+    // When steered by mission/theme terms, pull the matching items first.
+    const ordered = terms?.length ? rankItemsByTerms(feed.items, terms) : feed.items;
+
+    for (const item of ordered.slice(0, Math.max(1, Number(limit) || PER_FEED))) {
       // The item's own id is what identifies it across polls; a feed reordering
       // or re-publishing must not create a second copy.
       const fingerprint = crypto.createHash('sha1').update(item.id).digest('hex').slice(0, 12);
@@ -87,6 +91,22 @@ async function ingest({ url, limit = PER_FEED } = {}) {
 
   console.log(`ingest: ${added} new, ${skipped} already held, from ${feeds.length} feed(s)`);
   return { feeds: feeds.length, added, skipped };
+}
+
+/**
+ * Stable-sort feed items so those mentioning a term come first. Pure, so it is
+ * testable without a network. Ties keep the feed's own (newest-first) order.
+ */
+export function rankItemsByTerms(items, terms) {
+  const needles = terms.map(t => String(t).toLowerCase()).filter(Boolean);
+  const score = (item) => {
+    const hay = `${item?.title ?? ''} ${item?.summary ?? ''}`.toLowerCase();
+    return needles.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
+  };
+  return items
+    .map((item, i) => ({ item, i, s: score(item) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .map(x => x.item);
 }
 
 export default ingest;
